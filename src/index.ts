@@ -65,6 +65,9 @@ export { registerTrafficLive, TRAFFIC_LIVE_URI } from "./resources/traffic-live.
 export { registerNodes, NODES_URI } from "./resources/nodes.js";
 export { registerContacts, CONTACTS_URI } from "./resources/contacts.js";
 
+// Prompt registrar — the curated prompt templates (M5).
+export { registerPrompts } from "./prompts/index.js";
+
 // The actionable tool-error helper.
 export { toolError, formatRelative } from "./errors.js";
 export type { ToolErrorResult, ErrorContext } from "./errors.js";

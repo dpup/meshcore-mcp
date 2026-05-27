@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { registerPrompts } from "./prompts/index.js";
 import { registerContacts } from "./resources/contacts.js";
 import { registerNodes } from "./resources/nodes.js";
 import { registerTrafficLive } from "./resources/traffic-live.js";
@@ -55,9 +56,11 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
   );
 
   // The tools (PRD §5.1) need a MeshService to call. With one, register the read
-  // tools (M2), the action tools (M3: send_message, admin), and the resources
-  // (M4: nodes, contacts, and the subscribable live stream); without one (the
-  // M0 smoke path) the server stays empty. Prompts (M5) land here next.
+  // tools (M2), the action tools (M3: send_message, admin), the resources (M4:
+  // nodes, contacts, and the subscribable live stream), and the curated prompt
+  // templates (M5); without one (the M0 smoke path) the server stays empty. The
+  // prompts are pure content and don't need the service, but they register here
+  // so the empty path advertises nothing.
   if (options.service !== undefined) {
     registerGetNodeHealth(server, options.service);
     registerSurveyMesh(server, options.service);
@@ -68,6 +71,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerNodes(server, options.service);
     registerContacts(server, options.service);
     registerTrafficLive(server, options.service);
+
+    registerPrompts(server);
   }
 
   return server;
