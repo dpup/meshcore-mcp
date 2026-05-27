@@ -18,6 +18,11 @@ export { VERSION } from "./version.js";
 export { createServer } from "./server.js";
 export type { CreateServerOptions } from "./server.js";
 
+// Configuration: env/flags → validated Config (M6). Useful to embedders that
+// want to build their own client/service from the same environment contract.
+export { loadConfig, ConfigError } from "./config.js";
+export type { Config } from "./config.js";
+
 // The injectable clock (PRD §6) — SystemClock in prod, SimClock in tests.
 export { SystemClock, toMillis } from "./clock.js";
 export type { Clock, Duration, TimerHandle } from "./clock.js";
