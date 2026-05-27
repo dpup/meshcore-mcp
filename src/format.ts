@@ -1,0 +1,228 @@
+/**
+ * Output shaping — the boundary between the service's intent-shaped results and
+ * the MCP wire.
+ *
+ * Each read tool declares a Zod `outputSchema` (a raw shape the SDK derives JSON
+ * Schema from) and returns **both** a typed `structuredContent` object and a
+ * human-readable `content` **digest** — a high-signal summary, never raw frames
+ * (PRD §4, §5.3). The schemas and digesters live together here so the structured
+ * shape and its prose stay in lock-step.
+ *
+ * The schemas mirror the service result types (`NodeHealth`, `MeshSurvey`,
+ * `TrafficEvent`) field-for-field; the SDK validates the handler's
+ * `structuredContent` against them, so a drift between the two surfaces as a
+ * test failure rather than a silent mismatch.
+ */
+
+import { z } from "zod";
+
+import type { MeshSurvey, NodeHealth } from "./service/health.js";
+import type { TrafficEvent } from "./service/traffic-buffer.js";
+
+// ---------------------------------------------------------------------------
+// get_node_health
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `get_node_health`. Mirrors {@link NodeHealth}. */
+export const nodeHealthOutputShape = {
+  kind: z.enum(["home", "remote"]),
+  node: z.string(),
+  publicKey: z.string().optional(),
+  role: z.number().optional(),
+  reachable: z.boolean(),
+  lastHeardMs: z.number().optional(),
+  battery: z
+    .object({ milliVolts: z.number(), volts: z.number().optional() })
+    .optional(),
+  radio: z
+    .object({
+      freqKhz: z.number(),
+      bwKhz: z.number(),
+      sf: z.number(),
+      cr: z.number(),
+      txPower: z.number(),
+      maxTxPower: z.number(),
+    })
+    .optional(),
+  uptimeSecs: z.number().optional(),
+  txQueueLen: z.number().optional(),
+  stats: z
+    .object({
+      packetsReceived: z.number().optional(),
+      packetsSent: z.number().optional(),
+      recvFlood: z.number().optional(),
+      recvDirect: z.number().optional(),
+      sentFlood: z.number().optional(),
+      sentDirect: z.number().optional(),
+      noiseFloor: z.number().optional(),
+      lastRssi: z.number().optional(),
+      lastSnr: z.number().optional(),
+      totalAirTimeSecs: z.number().optional(),
+      errEvents: z.number().optional(),
+    })
+    .optional(),
+  deviceTimeMs: z.number().optional(),
+  telemetryBytes: z.number().optional(),
+} as const;
+
+/** A high-signal one-paragraph digest of a {@link NodeHealth} snapshot. */
+export function digestNodeHealth(h: NodeHealth): string {
+  const lines: string[] = [];
+  const where = h.kind === "home" ? "home node" : "remote node";
+  lines.push(`${h.node} (${where}) — reachable`);
+
+  if (h.battery) {
+    const v = h.battery.volts ?? h.battery.milliVolts / 1000;
+    lines.push(`battery ${v.toFixed(2)}V (${h.battery.milliVolts}mV)`);
+  }
+  if (h.radio) {
+    lines.push(
+      `radio ${(h.radio.freqKhz / 1000).toFixed(3)}MHz / ${h.radio.bwKhz}kHz / ` +
+        `SF${h.radio.sf} / CR${h.radio.cr}, TX ${h.radio.txPower}/${h.radio.maxTxPower}dBm`,
+    );
+  }
+  if (h.uptimeSecs !== undefined) {
+    lines.push(`uptime ${formatDuration(h.uptimeSecs)}`);
+  }
+  if (h.txQueueLen !== undefined) lines.push(`TX queue ${h.txQueueLen}`);
+
+  const s = h.stats;
+  if (s && (s.packetsReceived !== undefined || s.packetsSent !== undefined)) {
+    lines.push(`packets rx ${s.packetsReceived ?? "?"} / tx ${s.packetsSent ?? "?"}`);
+  }
+  if (s?.lastSnr !== undefined || s?.lastRssi !== undefined) {
+    lines.push(`signal RSSI ${s.lastRssi ?? "?"}dBm / SNR ${s.lastSnr ?? "?"}dB`);
+  }
+  if (h.telemetryBytes !== undefined) {
+    lines.push(
+      h.telemetryBytes > 0
+        ? `telemetry ${h.telemetryBytes} bytes (LPP, not decoded)`
+        : `telemetry: none reported`,
+    );
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// survey_mesh
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `survey_mesh`. Mirrors {@link MeshSurvey}. */
+export const meshSurveyOutputShape = {
+  home: z.object({
+    name: z.string(),
+    publicKey: z.string(),
+    role: z.number(),
+  }),
+  contacts: z.array(
+    z.object({
+      name: z.string(),
+      publicKey: z.string(),
+      role: z.number(),
+      lastHeardMs: z.number(),
+    }),
+  ),
+} as const;
+
+/** A roster digest: the home node and a last-heard-sorted contact list. */
+export function digestMeshSurvey(s: MeshSurvey, nowMs: number): string {
+  const lines: string[] = [];
+  lines.push(`Home: ${s.home.name} [${roleName(s.home.role)}] ${shortKey(s.home.publicKey)}`);
+  if (s.contacts.length === 0) {
+    lines.push("No contacts.");
+    return lines.join("\n");
+  }
+  lines.push(`${s.contacts.length} contact(s):`);
+  const sorted = [...s.contacts].sort((a, b) => b.lastHeardMs - a.lastHeardMs);
+  for (const c of sorted) {
+    const ago = relative(nowMs - c.lastHeardMs);
+    lines.push(`  ${c.name} [${roleName(c.role)}] ${shortKey(c.publicKey)} — last heard ${ago}`);
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// get_recent_traffic
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `get_recent_traffic`. Mirrors {@link TrafficEvent}. */
+export const recentTrafficOutputShape = {
+  events: z.array(
+    z.object({
+      id: z.string(),
+      at: z.number(),
+      kind: z.enum(["contact", "channel", "channelData", "advert", "raw"]),
+      decryptVerified: z.boolean(),
+      sender: z.string().optional(),
+      channelIdx: z.number().optional(),
+      text: z.string().optional(),
+      rssi: z.number().optional(),
+      snr: z.number().optional(),
+    }),
+  ),
+  count: z.number(),
+} as const;
+
+/** A compact, ordered digest of buffered traffic — one line per event. */
+export function digestRecentTraffic(events: TrafficEvent[]): string {
+  if (events.length === 0) return "No traffic in window.";
+  const lines = events.map((e) => {
+    const verified = e.decryptVerified ? "verified" : "unverified";
+    const parts: string[] = [`[${e.kind}/${verified}]`];
+    if (e.sender) parts.push(`from ${shortKey(e.sender)}`);
+    if (e.channelIdx !== undefined) parts.push(`ch${e.channelIdx}`);
+    if (e.text !== undefined) parts.push(`"${e.text}"`);
+    if (e.snr !== undefined) parts.push(`SNR ${e.snr}dB`);
+    if (e.rssi !== undefined) parts.push(`RSSI ${e.rssi}dBm`);
+    return `${e.at}ms ${parts.join(" ")}`;
+  });
+  return [`${events.length} event(s):`, ...lines].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// shared helpers
+// ---------------------------------------------------------------------------
+
+/** Map a meshcore `AdvType` numeric to a short label. */
+function roleName(role: number): string {
+  switch (role) {
+    case 1:
+      return "chat";
+    case 2:
+      return "repeater";
+    case 3:
+      return "room";
+    default:
+      return "node";
+  }
+}
+
+/** First 12 hex chars of a key, for compact display. */
+function shortKey(key: string): string {
+  return key.length > 12 ? `${key.slice(0, 12)}…` : key;
+}
+
+/** Coarse "ago" phrase for an elapsed-ms span. */
+function relative(elapsedMs: number): string {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "unknown";
+  const secs = Math.floor(elapsedMs / 1000);
+  if (secs < 45) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** Human duration from a seconds count (`1d 2h`, `3h 5m`, `45m`, `12s`). */
+function formatDuration(totalSecs: number): string {
+  if (!Number.isFinite(totalSecs) || totalSecs < 0) return "unknown";
+  const d = Math.floor(totalSecs / 86_400);
+  const h = Math.floor((totalSecs % 86_400) / 3_600);
+  const m = Math.floor((totalSecs % 3_600) / 60);
+  const s = Math.floor(totalSecs % 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}

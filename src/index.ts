@@ -23,7 +23,23 @@ export { SystemClock, toMillis } from "./clock.js";
 export type { Clock, Duration, TimerHandle } from "./clock.js";
 
 // The device-facing core and the recent-traffic buffer.
-export { MeshService } from "./service/mesh-service.js";
-export type { MeshServiceOptions } from "./service/mesh-service.js";
+export { MeshService, MeshServiceUnknownNodeError } from "./service/mesh-service.js";
+export type { MeshServiceOptions, CredentialsProvider } from "./service/mesh-service.js";
 export { TrafficBuffer, DEFAULT_TRAFFIC_CAPACITY } from "./service/traffic-buffer.js";
 export type { TrafficEvent, TrafficKind } from "./service/traffic-buffer.js";
+
+// The unified read-tool result types.
+export type {
+  NodeHealth,
+  MeshSurvey,
+  SurveyContact,
+} from "./service/health.js";
+
+// Tool registrars (wired by createServer; exported for reuse/inspection).
+export { registerGetNodeHealth } from "./tools/get-node-health.js";
+export { registerSurveyMesh } from "./tools/survey-mesh.js";
+export { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
+
+// The actionable tool-error helper.
+export { toolError, formatRelative } from "./errors.js";
+export type { ToolErrorResult, ErrorContext } from "./errors.js";

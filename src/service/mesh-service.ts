@@ -28,11 +28,40 @@
  * | `rawData` / `logRxData` | `raw`         | `false`         | rssi, snr                 |
  */
 
-import type { MeshCoreClient, MeshCoreEvents } from "@dpup/meshcore-ts";
+import type {
+  Contact,
+  MeshCoreClient,
+  MeshCoreEvents,
+  SelfInfo,
+  Stats,
+} from "@dpup/meshcore-ts";
+
+import { MeshCoreError } from "@dpup/meshcore-ts";
 
 import type { Clock } from "../clock.js";
+import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
+
+/**
+ * Thrown by {@link MeshService.nodeHealth} when `node` matches no known contact
+ * (and is not the home node). A {@link MeshCoreError} subclass so the tool
+ * layer's error formatter handles it on the same path as device errors.
+ */
+export class MeshServiceUnknownNodeError extends MeshCoreError {
+  constructor(node: string) {
+    super(`No contact matches "${node}"`);
+    this.name = "MeshServiceUnknownNodeError";
+  }
+}
+
+/**
+ * Resolve a node's admin/login password. Injected so config (M6) can supply
+ * per-node credentials without `MeshService` knowing where they came from.
+ * Returning `undefined` (or no provider at all) means "guest" — the empty
+ * password.
+ */
+export type CredentialsProvider = (node: string) => string | undefined;
 
 /** Options for constructing a {@link MeshService}. */
 export interface MeshServiceOptions {
@@ -41,6 +70,12 @@ export interface MeshServiceOptions {
    * {@link TrafficBuffer} default (~500 events).
    */
   trafficCapacity?: number;
+  /**
+   * Resolve a node's admin/login password for the remote-{@link nodeHealth}
+   * path. Defaults to the guest password (`""`) for every node. M6 wires this
+   * from config; M2 only plumbs the seam.
+   */
+  credentials?: CredentialsProvider;
 }
 
 /**
@@ -64,6 +99,8 @@ export class MeshService {
   private readonly clock: Clock;
   /** The recent-traffic ring buffer, fed by the event subscriptions. */
   private readonly buffer: TrafficBuffer;
+  /** Resolve a node's login password; `undefined` ⇒ guest (`""`). */
+  private readonly credentials: CredentialsProvider | undefined;
   /** Monotonic counter behind the `evt-<n>` ids. */
   private nextEventSeq = 1;
   /** Whether {@link start} has run (and subscriptions are live). */
@@ -88,6 +125,7 @@ export class MeshService {
     this.client = client;
     this.clock = clock;
     this.buffer = new TrafficBuffer(options.trafficCapacity);
+    this.credentials = options.credentials;
   }
 
   /**
@@ -120,12 +158,217 @@ export class MeshService {
     return since === undefined ? this.buffer.recent() : this.buffer.since(since);
   }
 
-  // M2: nodeHealth(node?), surveyMesh()
+  /**
+   * The current injected-clock time, in ms. The sole "now" the tool layer uses
+   * for relative-time digests — never `Date.now()` (PRD §6).
+   */
+  now(): number {
+    return this.clock.now();
+  }
+
+  /**
+   * A consolidated health snapshot for one node, hiding the home-vs-remote
+   * distinction and the remote login (PRD §4).
+   *
+   * With no `node` (or a `node` that resolves to the connected device) it
+   * assembles the **home** snapshot from the structured companion-protocol
+   * reads. Otherwise it resolves the contact, logs in (with the injected
+   * credentials, default guest), and reads the **remote** repeater's status and
+   * telemetry.
+   *
+   * An unreachable target makes the login/status reads reject with a
+   * `MeshCoreError`/timeout; that is allowed to throw here — the tool layer
+   * catches it and formats an actionable error result.
+   *
+   * @param node - A contact name or hex public-key prefix. Omitted ⇒ home.
+   */
+  async nodeHealth(node?: string): Promise<NodeHealth> {
+    const self = await this.client.getSelfInfo();
+
+    if (node === undefined || this.isHome(node, self)) {
+      return this.homeHealth(self);
+    }
+
+    const contact = await this.resolveContact(node);
+    if (contact === undefined) {
+      // No such contact — treat it like the home node's own identity match, or
+      // fall through to a remote attempt by key only if it looks like hex. A
+      // plain unknown name has nothing to log in to, so surface it as an error
+      // the tool layer formats (a MeshCoreError keeps the error path uniform).
+      throw new MeshServiceUnknownNodeError(node);
+    }
+
+    // The home node may itself be listed as a contact; if the resolved contact
+    // is the connected device, return the richer home snapshot.
+    if (contact.publicKey === self.publicKey) {
+      return this.homeHealth(self);
+    }
+
+    return this.remoteHealth(node, contact);
+  }
+
+  /**
+   * One consolidated roster: the home node plus every known contact, each with
+   * its last-heard time, role, and public key. Backs `survey_mesh`.
+   */
+  async surveyMesh(): Promise<MeshSurvey> {
+    const [self, contacts] = await Promise.all([
+      this.client.getSelfInfo(),
+      this.client.getContacts(),
+    ]);
+
+    const roster: SurveyContact[] = contacts.map((c) => ({
+      name: c.advName,
+      publicKey: c.publicKey,
+      role: c.type,
+      lastHeardMs: c.lastAdvert.getTime(),
+    }));
+
+    return {
+      home: { name: self.name, publicKey: self.publicKey, role: self.type },
+      contacts: roster,
+    };
+  }
+
   // M3: sendMessage(target, text), runAdmin(node, command, params?, dryRun?)
   // Deliberately omitted until then — kept off the surface so the class stays
   // cohesive and the tools have nothing to call prematurely.
 
   // --- internals ---------------------------------------------------------
+
+  /**
+   * Whether `node` refers to the connected home device — by its advertised
+   * name or by a hex prefix of its public key. Used to route a named/keyed
+   * `nodeHealth` request to the home snapshot rather than a remote login.
+   */
+  private isHome(node: string, self: SelfInfo): boolean {
+    if (node === self.name) return true;
+    const ref = node.toLowerCase();
+    return /^[0-9a-f]+$/.test(ref) && self.publicKey.startsWith(ref);
+  }
+
+  /**
+   * Resolve a contact by advertised name, then (failing that) by hex
+   * public-key prefix. Returns `undefined` when neither matches.
+   */
+  private async resolveContact(node: string): Promise<Contact | undefined> {
+    const byName = await this.client.findContactByName(node);
+    if (byName !== undefined) return byName;
+    if (/^[0-9a-f]+$/i.test(node)) {
+      return this.client.findContactByPublicKeyPrefix(node.toLowerCase());
+    }
+    return undefined;
+  }
+
+  /**
+   * Assemble the **home** snapshot from the structured companion-protocol
+   * reads: identity + radio config (`getSelfInfo`), battery, device time, and
+   * the three stat groups. Stat reads are gathered together; a missing field
+   * stays absent rather than synthesized.
+   */
+  private async homeHealth(self: SelfInfo): Promise<NodeHealth> {
+    const [battery, deviceTime, core, radio, packets] = await Promise.all([
+      this.client.getBatteryVoltage(),
+      this.client.getDeviceTime(),
+      this.client.getStatsCore(),
+      this.client.getStatsRadio(),
+      this.client.getStatsPackets(),
+    ]);
+
+    const stats: NonNullable<NodeHealth["stats"]> = {};
+    let uptimeSecs: number | undefined;
+    let txQueueLen: number | undefined;
+    let batteryMilliVolts = battery.milliVolts;
+
+    for (const s of [core, radio, packets] as Stats[]) {
+      if (s.type === "core") {
+        uptimeSecs = s.uptimeSecs;
+        txQueueLen = s.queueLen;
+        if (s.batteryMilliVolts > 0) batteryMilliVolts = s.batteryMilliVolts;
+      } else if (s.type === "radio") {
+        stats.noiseFloor = s.noiseFloor;
+        stats.lastRssi = s.lastRssi;
+        stats.lastSnr = s.lastSnr;
+      } else {
+        stats.packetsReceived = s.recv;
+        stats.packetsSent = s.sent;
+        stats.recvFlood = s.recvFlood;
+        stats.recvDirect = s.recvDirect;
+        stats.sentFlood = s.sentFlood;
+        stats.sentDirect = s.sentDirect;
+      }
+    }
+
+    return {
+      kind: "home",
+      node: self.name,
+      publicKey: self.publicKey,
+      role: self.type,
+      reachable: true,
+      lastHeardMs: deviceTime.getTime(),
+      deviceTimeMs: deviceTime.getTime(),
+      battery: { milliVolts: batteryMilliVolts, volts: batteryMilliVolts / 1000 },
+      radio: {
+        freqKhz: self.radioFreq,
+        bwKhz: self.radioBw,
+        sf: self.radioSf,
+        cr: self.radioCr,
+        txPower: self.txPower,
+        maxTxPower: self.maxTxPower,
+      },
+      uptimeSecs,
+      txQueueLen,
+      stats,
+    };
+  }
+
+  /**
+   * Assemble a **remote** snapshot: log in (guest by default, or the injected
+   * credential), then read the repeater's status and telemetry. Login/status
+   * reject for an unreachable node — that rejection propagates to the caller.
+   * Telemetry is reported only as an opaque byte length (PRD §4).
+   */
+  private async remoteHealth(node: string, contact: Contact): Promise<NodeHealth> {
+    const password = this.credentials?.(node) ?? "";
+    await this.client.login(contact, password);
+    const status = await this.client.getStatus(contact);
+
+    // Telemetry is best-effort: a node may report none. A failure here must not
+    // sink an otherwise-good status snapshot, so swallow it to undefined.
+    let telemetryBytes: number | undefined;
+    try {
+      const telemetry = await this.client.getTelemetry(contact);
+      telemetryBytes = telemetry.lppSensorData.length;
+    } catch {
+      telemetryBytes = undefined;
+    }
+
+    return {
+      kind: "remote",
+      node: contact.advName || node,
+      publicKey: contact.publicKey,
+      role: contact.type,
+      reachable: true,
+      lastHeardMs: contact.lastAdvert.getTime(),
+      battery: { milliVolts: status.batteryMilliVolts, volts: status.batteryMilliVolts / 1000 },
+      uptimeSecs: status.totalUpTimeSecs,
+      txQueueLen: status.currTxQueueLen,
+      stats: {
+        packetsReceived: status.packetsReceived,
+        packetsSent: status.packetsSent,
+        recvFlood: status.recvFlood,
+        recvDirect: status.recvDirect,
+        sentFlood: status.sentFlood,
+        sentDirect: status.sentDirect,
+        noiseFloor: status.noiseFloor,
+        lastRssi: status.lastRssi,
+        lastSnr: status.lastSnr,
+        totalAirTimeSecs: status.totalAirTimeSecs,
+        errEvents: status.errEvents,
+      },
+      telemetryBytes,
+    };
+  }
 
   /**
    * Wire one listener per source event, each mapping into a {@link TrafficEvent}
