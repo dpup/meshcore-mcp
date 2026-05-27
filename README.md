@@ -62,6 +62,27 @@ hands it; a malformed or missing config exits non-zero with a legible message
 
 The `--host`, `--port`, and `--serial` flags override the corresponding env vars.
 
+### Try it with no radio (simulator)
+
+No MeshCore hardware? [`examples/sim-server.ts`](./examples/sim-server.ts) serves
+the exact same MCP surface over stdio, but backed by
+[`@dpup/meshcore-sim`](https://github.com/dpup/meshcore-sim) over a small
+simulated mesh — with a real-time clock so live traffic actually flows while you
+poke at it. Point Claude Code at it:
+
+```sh
+git clone https://github.com/dpup/meshcore-mcp && cd meshcore-mcp && bun install
+claude mcp add meshcore-sim -- bun "$(pwd)/examples/sim-server.ts"
+```
+
+Then ask Claude to *"survey the mesh"*, *"check the health of Rocky Ridge"*,
+*"show recent traffic"*, or *"preview an admin reboot of Rocky Ridge"*. The
+production binary (`src/cli.ts`) talks only to real devices; the simulator is a
+dev dependency and never ships — this entrypoint is the hardware-free way to try
+the server. (Remote `admin` *execution* against the sim times out, since the
+simulator doesn't generate CLI replies reactively; use `dryRun: true` to see
+previews, or run a home-node command.)
+
 ## The surface
 
 A short, action-oriented surface: a handful of well-shaped tools beats dozens of
