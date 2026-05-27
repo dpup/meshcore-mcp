@@ -17,6 +17,7 @@
 import { z } from "zod";
 
 import type { MeshSurvey, NodeHealth } from "./service/health.js";
+import type { AdminResult, SendMessageResult } from "./service/mesh-service.js";
 import type { TrafficEvent } from "./service/traffic-buffer.js";
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,53 @@ export function digestRecentTraffic(events: TrafficEvent[]): string {
     return `${e.at}ms ${parts.join(" ")}`;
   });
   return [`${events.length} event(s):`, ...lines].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// send_message
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `send_message`. Mirrors {@link SendMessageResult}. */
+export const sendMessageOutputShape = {
+  kind: z.enum(["contact", "channel"]),
+  contact: z.string().optional(),
+  publicKey: z.string().optional(),
+  channelIdx: z.number().optional(),
+  channelName: z.string().optional(),
+  text: z.string(),
+} as const;
+
+/** A one-line digest of a {@link SendMessageResult}. */
+export function digestSendMessage(r: SendMessageResult): string {
+  if (r.kind === "contact") {
+    const who = r.publicKey ? `${r.contact} (${shortKey(r.publicKey)})` : r.contact;
+    return `Sent to ${who}: "${r.text}"`;
+  }
+  const where = r.channelName ? `#${r.channelName} (ch${r.channelIdx})` : `ch${r.channelIdx}`;
+  return `Sent to channel ${where}: "${r.text}"`;
+}
+
+// ---------------------------------------------------------------------------
+// admin
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `admin`. Mirrors {@link AdminResult}. */
+export const adminOutputShape = {
+  command: z.string(),
+  tier: z.enum(["read", "benign", "config", "sensitive", "destructive"]),
+  dryRun: z.boolean(),
+  via: z.enum(["home", "remote"]).optional(),
+  preview: z.string().optional(),
+  reply: z.string().optional(),
+} as const;
+
+/** A digest of an {@link AdminResult} — the preview for a dry-run, else the outcome. */
+export function digestAdmin(node: string, r: AdminResult): string {
+  if (r.dryRun) {
+    return `Dry-run [${r.tier}] ${r.command}: ${r.preview ?? ""}`;
+  }
+  const head = `${r.command} [${r.tier}] on ${node} — done (${r.via})`;
+  return r.reply !== undefined ? `${head}\n${r.reply}` : head;
 }
 
 // ---------------------------------------------------------------------------

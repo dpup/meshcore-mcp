@@ -29,16 +29,20 @@
  */
 
 import type {
+  Channel,
   Contact,
+  ContactMessage,
   MeshCoreClient,
   MeshCoreEvents,
   SelfInfo,
   Stats,
 } from "@dpup/meshcore-ts";
 
-import { MeshCoreError } from "@dpup/meshcore-ts";
+import { MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 
-import type { Clock } from "../clock.js";
+import type { Clock, TimerHandle } from "../clock.js";
+import type { AdminCommandDef, RiskTier } from "./admin.js";
+import { ADMIN_COMMANDS } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
@@ -53,6 +57,68 @@ export class MeshServiceUnknownNodeError extends MeshCoreError {
     super(`No contact matches "${node}"`);
     this.name = "MeshServiceUnknownNodeError";
   }
+}
+
+/**
+ * Thrown by {@link MeshService.runAdmin} when the request is malformed before
+ * any device contact: an unknown `command`, params that fail the command's Zod
+ * schema, or a scope mismatch (a `remote-only` command targeting the home
+ * node). A {@link MeshCoreError} subclass so the tool layer's error formatter
+ * surfaces it on the same `isError` path as device errors — actionable, never a
+ * crash.
+ */
+export class AdminCommandError extends MeshCoreError {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminCommandError";
+  }
+}
+
+/**
+ * The result of {@link MeshService.sendMessage}. A small, structured digest of
+ * what was transmitted and where — not the raw `SentResult` frame.
+ */
+export interface SendMessageResult {
+  /** How the target was resolved. */
+  kind: "contact" | "channel";
+  /** The resolved contact's display name (for `kind: "contact"`). */
+  contact?: string;
+  /** The resolved contact's hex public key (for `kind: "contact"`). */
+  publicKey?: string;
+  /** The resolved channel index (for `kind: "channel"`). */
+  channelIdx?: number;
+  /** The resolved channel name, where known (for `kind: "channel"`). */
+  channelName?: string;
+  /** The text transmitted. */
+  text: string;
+}
+
+/**
+ * The result of {@link MeshService.runAdmin}. A discriminated digest covering
+ * the three outcomes:
+ *
+ * - **dry-run** — `dryRun: true`, a synthesized `preview`, no device contact;
+ * - **home exec** — `dryRun: false`, dispatched via the structured
+ *   `MeshCoreClient` method (no `reply`);
+ * - **remote exec** — `dryRun: false`, dispatched via the
+ *   `login → CliData → reply` handshake (carries the repeater's `reply` text).
+ *
+ * Every variant carries the `command` and its `tier` so the tool can surface
+ * the per-command risk in its structured output.
+ */
+export interface AdminResult {
+  /** The command that ran (its registry name). */
+  command: string;
+  /** The command's risk tier (execution plan §9). */
+  tier: RiskTier;
+  /** Whether this was a dry-run (no device contact). */
+  dryRun: boolean;
+  /** Where the command was dispatched (absent for a dry-run). */
+  via?: "home" | "remote";
+  /** The synthesized intent preview — present iff `dryRun`. */
+  preview?: string;
+  /** The repeater's CLI reply text — present for a remote exec. */
+  reply?: string;
 }
 
 /**
@@ -76,7 +142,16 @@ export interface MeshServiceOptions {
    * from config; M2 only plumbs the seam.
    */
   credentials?: CredentialsProvider;
+  /**
+   * How long {@link runAdmin}'s remote path waits for the repeater's CLI reply
+   * before giving up, as injected-clock ms. Scheduled on the {@link Clock} (never
+   * a native timer). Defaults to 15s.
+   */
+  adminReplyTimeoutMs?: number;
 }
+
+/** Default wait for a remote admin CLI reply, in injected-clock ms. */
+const DEFAULT_ADMIN_REPLY_TIMEOUT_MS = 15_000;
 
 /**
  * The device-facing core: an injected {@link MeshCoreClient} + {@link Clock},
@@ -101,6 +176,8 @@ export class MeshService {
   private readonly buffer: TrafficBuffer;
   /** Resolve a node's login password; `undefined` ⇒ guest (`""`). */
   private readonly credentials: CredentialsProvider | undefined;
+  /** How long the remote admin path waits for a CLI reply, in clock ms. */
+  private readonly adminReplyTimeoutMs: number;
   /** Monotonic counter behind the `evt-<n>` ids. */
   private nextEventSeq = 1;
   /** Whether {@link start} has run (and subscriptions are live). */
@@ -126,6 +203,8 @@ export class MeshService {
     this.clock = clock;
     this.buffer = new TrafficBuffer(options.trafficCapacity);
     this.credentials = options.credentials;
+    this.adminReplyTimeoutMs =
+      options.adminReplyTimeoutMs ?? DEFAULT_ADMIN_REPLY_TIMEOUT_MS;
   }
 
   /**
@@ -230,11 +309,248 @@ export class MeshService {
     };
   }
 
-  // M3: sendMessage(target, text), runAdmin(node, command, params?, dryRun?)
-  // Deliberately omitted until then — kept off the surface so the class stays
-  // cohesive and the tools have nothing to call prematurely.
+  /**
+   * Send a text message, resolving `target` as either a **contact** or a
+   * **channel** and routing to the matching typed client method (PRD §5.1).
+   *
+   * Resolution order:
+   * - `#name` or `#idx` — an explicit channel reference (the `#` is stripped);
+   * - a bare integer (e.g. `"0"`) — a channel index;
+   * - otherwise a contact by name, then by hex public-key prefix;
+   * - failing all of those, a channel by name (a last resort for names that did
+   *   not match a contact).
+   *
+   * Returns a small structured digest of what was sent and to whom/which
+   * channel — not the raw `SentResult`. An unknown target throws a
+   * {@link MeshServiceUnknownNodeError}, which the tool layer formats.
+   */
+  async sendMessage(target: string, text: string): Promise<SendMessageResult> {
+    // An explicit channel reference: `#name` or `#idx`.
+    if (target.startsWith("#")) {
+      const ref = target.slice(1);
+      const channel = await this.resolveChannel(ref);
+      if (channel === undefined) {
+        throw new MeshServiceUnknownNodeError(target);
+      }
+      await this.client.sendChannelTextMessage(channel.channelIdx, text);
+      return {
+        kind: "channel",
+        channelIdx: channel.channelIdx,
+        channelName: channel.name,
+        text,
+      };
+    }
+
+    // A bare integer is a channel index.
+    if (/^\d+$/.test(target)) {
+      const idx = Number(target);
+      const channel = await this.resolveChannelByIndex(idx);
+      await this.client.sendChannelTextMessage(idx, text);
+      return {
+        kind: "channel",
+        channelIdx: idx,
+        channelName: channel?.name,
+        text,
+      };
+    }
+
+    // Otherwise a contact by name or hex prefix.
+    const contact = await this.resolveContact(target);
+    if (contact !== undefined) {
+      await this.client.sendTextMessage(contact, text);
+      return {
+        kind: "contact",
+        contact: contact.advName || target,
+        publicKey: contact.publicKey,
+        text,
+      };
+    }
+
+    // Last resort: a channel matched by name (no `#` prefix).
+    const channel = await this.resolveChannel(target);
+    if (channel !== undefined) {
+      await this.client.sendChannelTextMessage(channel.channelIdx, text);
+      return {
+        kind: "channel",
+        channelIdx: channel.channelIdx,
+        channelName: channel.name,
+        text,
+      };
+    }
+
+    throw new MeshServiceUnknownNodeError(target);
+  }
+
+  /**
+   * Run one enumerated `admin` command against `node` (execution plan §9, §6).
+   *
+   * Validates `command` against {@link ADMIN_COMMANDS} and `params` against the
+   * command's Zod schema first — a bad command or params throws an
+   * {@link AdminCommandError} before any device contact. Then:
+   *
+   * - **`dryRun`** — return the synthesized {@link AdminCommandDef.preview},
+   *   touching nothing.
+   * - **home node + a `home()` path** — dispatch the structured
+   *   {@link MeshCoreClient} method.
+   * - **remote node (or a `remote-only` command)** — resolve the contact,
+   *   `login` (with the injected credentials, default guest), send each CLI
+   *   string as `CliData`, and await the repeater's reply (the next
+   *   `contactMessage` from that node, correlated by sender + timing, timed out
+   *   on the injected clock). No explicit logout (none exists — §6).
+   *
+   * A `remote-only` command targeting the home node throws an
+   * {@link AdminCommandError}. An unreachable/unknown remote rejects at `login`
+   * (a `MeshCoreError`), which propagates for the tool layer to format.
+   */
+  async runAdmin(
+    node: string,
+    command: string,
+    params: unknown,
+    dryRun: boolean,
+  ): Promise<AdminResult> {
+    const def = ADMIN_COMMANDS[command];
+    if (def === undefined) {
+      const known = Object.keys(ADMIN_COMMANDS).join(", ");
+      throw new AdminCommandError(
+        `Unknown admin command "${command}". Known commands: ${known}.`,
+      );
+    }
+
+    const parsed = def.params.safeParse(params ?? {});
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((i) => `${i.path.join(".") || "(params)"}: ${i.message}`)
+        .join("; ");
+      throw new AdminCommandError(`Invalid params for "${command}": ${issues}.`);
+    }
+    const p = parsed.data;
+
+    if (dryRun) {
+      return {
+        command,
+        tier: def.tier,
+        dryRun: true,
+        preview: def.preview(node, p),
+      };
+    }
+
+    const self = await this.client.getSelfInfo();
+    const isHome = this.isHome(node, self);
+
+    // Home dispatch: only when the node is home, the command is home-reachable,
+    // and a structured path exists.
+    if (isHome) {
+      if (def.scope === "remote-only" || def.home === undefined) {
+        throw new AdminCommandError(
+          `Command "${command}" is remote-only and cannot run against the home node "${node}".`,
+        );
+      }
+      await def.home(this.client, node, p);
+      return { command, tier: def.tier, dryRun: false, via: "home" };
+    }
+
+    // Remote dispatch: login → CliData → await reply.
+    return this.runAdminRemote(node, def, p);
+  }
 
   // --- internals ---------------------------------------------------------
+
+  /**
+   * The remote admin handshake (§6): resolve the contact, `login` (guest by
+   * default, or the injected credential), send each CLI string as a `CliData`
+   * text message, then await the repeater's reply — the next `contactMessage`
+   * from that node's `pubKeyPrefix`, correlated by sender + timing. There is no
+   * explicit logout (none exists; sessions expire server-side). The captured
+   * reply is also recorded by the traffic buffer — expected.
+   */
+  private async runAdminRemote(
+    node: string,
+    def: AdminCommandDef,
+    params: unknown,
+  ): Promise<AdminResult> {
+    const contact = await this.resolveContact(node);
+    if (contact === undefined) {
+      // Nothing to log in to — surface it the same way an unreachable node is.
+      throw new MeshServiceUnknownNodeError(node);
+    }
+
+    const password = this.credentials?.(node) ?? "";
+    const { pubKeyPrefix } = await this.client.login(contact, password);
+
+    const cli = def.remoteCli(params);
+    const lines = Array.isArray(cli) ? cli : [cli];
+
+    // Arm the reply listener *before* sending, so a fast reply cannot race past
+    // it. The reply correlates by sender prefix + timing (§6); long output may
+    // span multiple messages, but the first reply is the structured result.
+    const replyPromise = this.awaitContactReply(pubKeyPrefix, this.adminReplyTimeoutMs);
+    for (const line of lines) {
+      await this.client.sendTextMessage(contact, line, TxtType.CliData);
+    }
+    const reply = await replyPromise;
+
+    return { command: def.name, tier: def.tier, dryRun: false, via: "remote", reply };
+  }
+
+  /**
+   * Await the next `contactMessage` from `pubKeyPrefix`, resolving with its
+   * text, or rejecting on a {@link Clock}-scheduled timeout. Both paths clean up
+   * the listener and the timer exactly once — no native timers (PRD §6).
+   *
+   * The reply is correlated by **sender + timing** (§6): the first
+   * `contactMessage` whose `pubKeyPrefix` matches the logged-in node. The
+   * captured message is also recorded by the traffic buffer (the service's own
+   * subscription) — that is expected.
+   */
+  private awaitContactReply(pubKeyPrefix: string, timeoutMs: number): Promise<string> {
+    const want = pubKeyPrefix.toLowerCase();
+    return new Promise<string>((resolve, reject) => {
+      let timer: TimerHandle | undefined;
+      const onMessage = (m: ContactMessage): void => {
+        if (m.pubKeyPrefix.toLowerCase() !== want) return;
+        cleanup();
+        resolve(m.text);
+      };
+      const cleanup = (): void => {
+        this.client.off("contactMessage", onMessage);
+        if (timer !== undefined) this.clock.clearTimeout(timer);
+      };
+      this.client.on("contactMessage", onMessage);
+      timer = this.clock.setTimeout(() => {
+        cleanup();
+        reject(
+          new MeshCoreError(
+            `no reply from ${pubKeyPrefix} within ${Math.round(timeoutMs / 1000)}s`,
+          ),
+        );
+      }, timeoutMs);
+    });
+  }
+
+  /**
+   * Resolve a channel by index or name (a `#`-stripped ref). A purely numeric
+   * ref is an index; otherwise it is matched by name. Returns `undefined` when
+   * neither matches.
+   */
+  private async resolveChannel(ref: string): Promise<Channel | undefined> {
+    if (/^\d+$/.test(ref)) {
+      return this.resolveChannelByIndex(Number(ref));
+    }
+    return this.client.findChannelByName(ref);
+  }
+
+  /**
+   * Resolve a channel by its numeric index, returning `undefined` if the device
+   * reports no such slot (a failed read is swallowed — the send itself still
+   * goes out by index, the lookup is only to enrich the result digest).
+   */
+  private async resolveChannelByIndex(idx: number): Promise<Channel | undefined> {
+    try {
+      return await this.client.getChannel(idx);
+    } catch {
+      return undefined;
+    }
+  }
 
   /**
    * Whether `node` refers to the connected home device — by its advertised

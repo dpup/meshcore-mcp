@@ -232,9 +232,13 @@ describe("read tools through a real MCP Client over a sim-backed server", () => 
 
     const { tools } = await h.client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["get_node_health", "get_recent_traffic", "survey_mesh"]);
+    // The read tools are present (M3 adds the action tools to the same server).
+    expect(names).toEqual(
+      expect.arrayContaining(["get_node_health", "get_recent_traffic", "survey_mesh"]),
+    );
 
-    for (const t of tools) {
+    const readToolNames = new Set(["get_node_health", "get_recent_traffic", "survey_mesh"]);
+    for (const t of tools.filter((t) => readToolNames.has(t.name))) {
       expect(t.annotations?.readOnlyHint).toBe(true);
       expect(t.annotations?.idempotentHint).toBe(true);
       expect(t.annotations?.destructiveHint).toBe(false);

@@ -1,8 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { MeshService } from "./service/mesh-service.js";
+import { registerAdmin } from "./tools/admin.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
+import { registerSendMessage } from "./tools/send-message.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
 import { VERSION } from "./version.js";
 
@@ -39,13 +41,16 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     version: options.version ?? VERSION,
   });
 
-  // The read tools (PRD §5.1) need a MeshService to call. With one, register
-  // them; without one (the M0 smoke path) the server stays empty. Action tools
-  // (M3), resources (M4), and prompts (M5) land here next.
+  // The tools (PRD §5.1) need a MeshService to call. With one, register the read
+  // tools (M2) and the action tools (M3: send_message, admin); without one (the
+  // M0 smoke path) the server stays empty. Resources (M4) and prompts (M5) land
+  // here next.
   if (options.service !== undefined) {
     registerGetNodeHealth(server, options.service);
     registerSurveyMesh(server, options.service);
     registerGetRecentTraffic(server, options.service);
+    registerSendMessage(server, options.service);
+    registerAdmin(server, options.service);
   }
 
   return server;

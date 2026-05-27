@@ -23,8 +23,26 @@ export { SystemClock, toMillis } from "./clock.js";
 export type { Clock, Duration, TimerHandle } from "./clock.js";
 
 // The device-facing core and the recent-traffic buffer.
-export { MeshService, MeshServiceUnknownNodeError } from "./service/mesh-service.js";
-export type { MeshServiceOptions, CredentialsProvider } from "./service/mesh-service.js";
+export {
+  MeshService,
+  MeshServiceUnknownNodeError,
+  AdminCommandError,
+} from "./service/mesh-service.js";
+export type {
+  MeshServiceOptions,
+  CredentialsProvider,
+  SendMessageResult,
+  AdminResult,
+} from "./service/mesh-service.js";
+
+// The enumerated admin command set (execution plan §9).
+export { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./service/admin.js";
+export type {
+  AdminCommandDef,
+  RiskTier,
+  AdminScope,
+  TierAnnotations,
+} from "./service/admin.js";
 export { TrafficBuffer, DEFAULT_TRAFFIC_CAPACITY } from "./service/traffic-buffer.js";
 export type { TrafficEvent, TrafficKind } from "./service/traffic-buffer.js";
 
@@ -39,6 +57,8 @@ export type {
 export { registerGetNodeHealth } from "./tools/get-node-health.js";
 export { registerSurveyMesh } from "./tools/survey-mesh.js";
 export { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
+export { registerSendMessage } from "./tools/send-message.js";
+export { registerAdmin } from "./tools/admin.js";
 
 // The actionable tool-error helper.
 export { toolError, formatRelative } from "./errors.js";
