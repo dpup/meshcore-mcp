@@ -1,0 +1,72 @@
+{
+  "name": "@dpup/meshcore-mcp",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "An MCP server that exposes a MeshCore node — and the mesh reachable through it — as a clean, high-signal interface for AI agents and tools. Built on @dpup/meshcore-ts.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Dan Pupius",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dpup/meshcore-mcp.git"
+  },
+  "homepage": "https://github.com/dpup/meshcore-mcp#readme",
+  "bugs": "https://github.com/dpup/meshcore-mcp/issues",
+  "keywords": [
+    "meshcore",
+    "mesh",
+    "lora",
+    "radio",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.2.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "meshcore-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/cli.js",
+    "dev": "bun src/cli.ts",
+    "docs": "typedoc && node scripts/postdocs.mjs",
+    "docs:check": "typedoc && node scripts/postdocs.mjs && node scripts/docs-check.mjs",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@dpup/meshcore-ts": "^0.1.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@dpup/meshcore-sim": "^0.1.1",
+    "@liamcottle/meshcore.js": "^1.13.0",
+    "@types/node": "^22.0.0",
+    "typedoc": "^0.28.19",
+    "typedoc-plugin-markdown": "^4.11.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

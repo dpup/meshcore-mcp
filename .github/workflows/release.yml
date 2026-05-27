@@ -1,0 +1,63 @@
+name: Release
+
+# Publishes to npm when a version tag (vX.Y.Z) is pushed.
+#
+# Typical flow:
+#   npm version patch        # bumps package.json, commits, creates tag vX.Y.Z
+#   git push --follow-tags   # pushes commit + tag -> triggers this workflow
+#
+# Auth uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret. Configure the
+# trusted publisher for @dpup/meshcore-mcp on npmjs.com first (repo
+# dpup/meshcore-mcp, workflow release.yml). Token fallback: set
+# `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` on the publish step and drop the
+# `id-token` permission.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # OIDC for npm trusted publishing + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Use an OIDC-capable npm
+        run: npm install -g npm@latest
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+
+      - name: Verify tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "Publishing v$pkg"
+
+      - name: Publish to npm (with provenance)
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          fi

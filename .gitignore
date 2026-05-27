@@ -1,0 +1,12 @@
+node_modules/
+dist/
+docs/.api-tmp/
+*.log
+*.tsbuildinfo
+.DS_Store
+
+# bun is the canonical package manager; the committed lockfile is the text
+# `bun.lock` (bun >= 1.2). The legacy binary `bun.lockb` (bun <= 1.1) and npm's
+# lockfile are ignored so an older/other tool can't churn the canonical one.
+bun.lockb
+package-lock.json
