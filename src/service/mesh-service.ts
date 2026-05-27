@@ -137,13 +137,13 @@ export interface MeshServiceOptions {
    */
   trafficCapacity?: number;
   /**
-   * Resolve a node's admin/login password for the remote-{@link nodeHealth}
+   * Resolve a node's admin/login password for the remote-{@link MeshService.nodeHealth}
    * path. Defaults to the guest password (`""`) for every node. M6 wires this
    * from config; M2 only plumbs the seam.
    */
   credentials?: CredentialsProvider;
   /**
-   * How long {@link runAdmin}'s remote path waits for the repeater's CLI reply
+   * How long {@link MeshService.runAdmin}'s remote path waits for the repeater's CLI reply
    * before giving up, as injected-clock ms. Scheduled on the {@link Clock} (never
    * a native timer). Defaults to 15s.
    */

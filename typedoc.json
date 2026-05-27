@@ -14,5 +14,15 @@
   "hideBreadcrumbs": true,
   "useCodeBlocks": true,
   "parametersFormat": "table",
+  "externalSymbolLinkMappings": {
+    "@dpup/meshcore-ts": {
+      "MeshCoreClient": "https://github.com/dpup/meshcore-ts/blob/main/docs/api.md",
+      "MeshCoreError": "https://github.com/dpup/meshcore-ts/blob/main/docs/api.md",
+      "Contact": "https://github.com/dpup/meshcore-ts/blob/main/docs/api.md"
+    },
+    "@modelcontextprotocol/sdk": {
+      "McpServer": "https://github.com/modelcontextprotocol/typescript-sdk"
+    }
+  },
   "validation": { "notExported": false, "invalidLink": true, "notDocumented": false }
 }

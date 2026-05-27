@@ -11,7 +11,8 @@ don't-regress list.
   design — no policy layer (that's `meshcore-elmer`).
 - `MeshService` takes an **injected** `MeshCoreClient` + `Clock`. Tests drive a
   real MCP `Client` (in-memory transport) → server → sim-backed client.
-- Verify with: `bun run typecheck` · `bun run test` · `bun run build`.
+- Verify with: `bun run typecheck` · `bun run test` · `bun run build` ·
+  `bun run docs:check` (the generated `docs/api.md` must stay in sync).
 - ESM-only, Node ≥ 18, `NodeNext`, `verbatimModuleSyntax`, `strict` — `.js`
   import extensions, split `import type` / `export type`.
 
@@ -19,9 +20,15 @@ don't-regress list.
 
 1. Injected `MeshCoreClient` + `Clock`; never construct them inside `MeshService`.
 2. No `Date.now()`/`setTimeout` below the entrypoint — use the `Clock`.
-3. Provenance is structural: verified `channelMessage` vs. unverified `channelData`.
-4. `admin` is an enumerated, curated set (execution plan §9) — never free-form.
-5. stdout is the MCP channel; diagnostics to stderr.
+3. Provenance is structural: verified `channelMessage`/`contactMessage` vs.
+   unverified `channelData`/`advert`/`raw` — each event carries `decryptVerified`.
+4. `admin` is an enumerated, curated set (execution plan §9) — never free-form;
+   risk tier → annotations is deterministic; `dryRun` never touches the device.
+5. Annotations are the boundary; structured output + actionable `isError`
+   results, never raw frames or thrown exceptions.
+6. stdout is the MCP channel; diagnostics to stderr.
+7. `docs/api.md` is generated (`bun run docs`) — never hand-edit; `drift.test.ts`
+   guards both contracts.
 
 ## Planning docs
 

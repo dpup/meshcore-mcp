@@ -12,6 +12,11 @@ bridge). It is the *device layer*, and **ungated by design**: it contains no
 conversation policy, admin-channel gate, or autonomous behavior (that belongs to
 `meshcore-elmer`). See `docs/plans/` for the PRD (v0.3) and execution plan.
 
+Docs are three layers: `README.md` (landing + the Claude Code MCP-config snippet
++ the tool/resource/prompt tables), `docs/guide.md` (hand-written concepts &
+recipes), and `docs/api.md` (**generated** by TypeDoc); `llms.txt` indexes all
+three for agents.
+
 Companion projects, by the same author — keep all three consistent in stack,
 style, and tone:
 
@@ -65,19 +70,31 @@ is the centre of gravity (`test/helpers/sim-server.ts`).
 
 ```
 src/
-  index.ts        Library surface (re-exports createServer, + later MeshService/types).
-  cli.ts          #! entrypoint: build client+service, serve over stdio (M6).
-  server.ts       createServer(): wires tools + resources + prompts onto McpServer.
-  version.ts      VERSION (kept in step with package.json).
-  config.ts       env/flags -> validated Config (M6).
-  clock.ts        Clock interface + SystemClock (M1).
-  service/        MeshService (device-facing core), traffic buffer, health, admin (M1, M3).
-  tools/          one registrar per tool: get_node_health, survey_mesh, … (M2–M3).
-  resources/      traffic-live, nodes, contacts (M4).
-  prompts/        curated prompt templates (M5).
-test/             Vitest; full-stack tests drive a real MCP Client over a sim-backed server.
-examples/demo.ts  The guided-tour demo (M8).
-docs/api.md       GENERATED (TypeDoc) — do not hand-edit. docs/guide.md hand-written.
+  index.ts                Library surface — re-exports createServer, MeshService, the admin set,
+                          traffic/health/error types, and every tool/resource/prompt registrar.
+  cli.ts                  #! entrypoint: loadConfig → MeshCoreClient.tcp/.serial + SystemClock →
+                          MeshService → createServer → StdioServerTransport, graceful shutdown.
+  server.ts               createServer({ service }): wires tools + resources + prompts onto
+                          McpServer. With no service it's the empty M0 smoke server.
+  version.ts              VERSION (kept in step with package.json).
+  config.ts               env/flags → validated Config; legible ConfigError, fail-fast.
+  clock.ts                Clock interface + SystemClock + toMillis/Duration.
+  errors.ts               toolError(): MeshCoreError/timeouts → actionable isError tool results.
+  format.ts               model → structured, digested tool-output shaping (not raw frames).
+  service/
+    mesh-service.ts       MeshService — the device-facing core (injected client + clock + buffer).
+    traffic-buffer.ts     Bounded ring buffer of recent live events, stamped + tagged with provenance.
+    health.ts             The get_node_health / survey_mesh result assembler and types.
+    admin.ts              ADMIN_COMMANDS — the frozen, enumerated 16-command set + annotationsForTier.
+  tools/                  one registrar per tool: get-node-health, survey-mesh, get-recent-traffic,
+                          send-message, admin.
+  resources/              traffic-live (subscribable), nodes, contacts.
+  prompts/index.ts        the three curated prompt templates.
+test/                     Vitest; full-stack tests drive a real MCP Client over a sim-backed server
+                          (helpers/sim-server.ts is the harness). drift.test.ts guards both contracts.
+examples/demo.ts          The guided-tour demo — sim-backed, deterministic, no hardware.
+docs/api.md               GENERATED (TypeDoc + scripts/postdocs.mjs) — do not hand-edit.
+docs/guide.md             Hand-written concepts & recipes. llms.txt indexes all three doc layers.
 ```
 
 ## Commands
@@ -113,12 +130,26 @@ the text `bun.lock`; bun 1.1.x writes the binary `bun.lockb` (gitignored).
 1. **Injected `MeshCoreClient` + `Clock`** — `MeshService` never constructs its
    own; that seam is what the sim-backed tests depend on.
 2. **No `Date.now()`/`setTimeout`** below the entrypoint — use the `Clock`.
-3. **Provenance is structural** — don't collapse verified `channelMessage` vs.
-   unverified `channelData`; the live stream must mark them differently.
-4. **`admin` is enumerated**, never free-form; risk tier → annotations is
-   deterministic.
-5. **stdout is the MCP channel** — diagnostics go to stderr only.
-6. **Assert app-visible behavior**, never sim/server internals.
+3. **Provenance is structural** — don't collapse verified `channelMessage`/
+   `contactMessage` vs. unverified `channelData`/`advert`/`raw`; the live stream
+   and `get_recent_traffic` must carry a derived `decryptVerified` per event.
+4. **`admin` is enumerated** (the frozen `ADMIN_COMMANDS`), never free-form; risk
+   tier → annotations (`annotationsForTier`) is deterministic; `dryRun` previews
+   are synthesized **without contacting the device**.
+5. **Annotations are the boundary** — every tool declares
+   `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`;
+   `send_message` is non-idempotent; reads are read-only + idempotent.
+6. **Structured, digested output + actionable errors** — every tool returns its
+   typed `outputSchema`; failures are `isError` results via `toolError`, never a
+   thrown exception or a raw frame.
+7. **stdout is the MCP channel** — diagnostics go to stderr only.
+8. **The drift test stays honest** — `test/drift.test.ts` names every
+   `MeshCoreClient` method/event and MCP SDK entry point the server depends on; a
+   dependency bump that moves either contract fails there, loudly. Reconcile, do
+   not delete.
+9. **Assert app-visible behavior**, never sim/server internals.
+10. **`docs/api.md` is generated** — never hand-edit; run `bun run docs` and let
+    `bun run docs:check` gate it in CI.
 
 ## Testing
 
