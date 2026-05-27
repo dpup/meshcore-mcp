@@ -1,5 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { registerContacts } from "./resources/contacts.js";
+import { registerNodes } from "./resources/nodes.js";
+import { registerTrafficLive } from "./resources/traffic-live.js";
 import type { MeshService } from "./service/mesh-service.js";
 import { registerAdmin } from "./tools/admin.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
@@ -36,21 +39,35 @@ export interface CreateServerOptions {
  * an `InMemoryTransport` linked to a `Client` in tests.
  */
 export function createServer(options: CreateServerOptions = {}): McpServer {
-  const server = new McpServer({
-    name: options.name ?? "meshcore-mcp",
-    version: options.version ?? VERSION,
-  });
+  // Thread the resources.subscribe capability into construction *only* when a
+  // service is present — the live resource needs it (M4). The M0 empty-server
+  // smoke path declares no capability, so it advertises a bare resource-less
+  // server. registerTrafficLive re-declares the same capability (merged, not
+  // duplicated), keeping its subscription wiring self-contained.
+  const server = new McpServer(
+    {
+      name: options.name ?? "meshcore-mcp",
+      version: options.version ?? VERSION,
+    },
+    options.service !== undefined
+      ? { capabilities: { resources: { subscribe: true } } }
+      : {},
+  );
 
   // The tools (PRD §5.1) need a MeshService to call. With one, register the read
-  // tools (M2) and the action tools (M3: send_message, admin); without one (the
-  // M0 smoke path) the server stays empty. Resources (M4) and prompts (M5) land
-  // here next.
+  // tools (M2), the action tools (M3: send_message, admin), and the resources
+  // (M4: nodes, contacts, and the subscribable live stream); without one (the
+  // M0 smoke path) the server stays empty. Prompts (M5) land here next.
   if (options.service !== undefined) {
     registerGetNodeHealth(server, options.service);
     registerSurveyMesh(server, options.service);
     registerGetRecentTraffic(server, options.service);
     registerSendMessage(server, options.service);
     registerAdmin(server, options.service);
+
+    registerNodes(server, options.service);
+    registerContacts(server, options.service);
+    registerTrafficLive(server, options.service);
   }
 
   return server;

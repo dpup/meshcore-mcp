@@ -60,6 +60,11 @@ export { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 export { registerSendMessage } from "./tools/send-message.js";
 export { registerAdmin } from "./tools/admin.js";
 
+// Resource registrars (wired by createServer; exported for reuse/inspection).
+export { registerTrafficLive, TRAFFIC_LIVE_URI } from "./resources/traffic-live.js";
+export { registerNodes, NODES_URI } from "./resources/nodes.js";
+export { registerContacts, CONTACTS_URI } from "./resources/contacts.js";
+
 // The actionable tool-error helper.
 export { toolError, formatRelative } from "./errors.js";
 export type { ToolErrorResult, ErrorContext } from "./errors.js";

@@ -238,6 +238,27 @@ export class MeshService {
   }
 
   /**
+   * Register a callback fired synchronously whenever a new {@link TrafficEvent}
+   * is buffered — the bridge the subscribable `meshcore://traffic/live` resource
+   * (M4) uses to emit `notifications/resources/updated`. The buffer supports a
+   * single hook; pass `undefined` to clear it. Keeping this on `MeshService`
+   * preserves the rule that resources go through the service, never the buffer
+   * or client directly.
+   */
+  onTraffic(cb: ((event: TrafficEvent) => void) | undefined): void {
+    this.buffer.onPush(cb);
+  }
+
+  /**
+   * The device's contact list — the roster behind the `meshcore://contacts`
+   * resource (M4). Returns the typed {@link Contact} models verbatim from the
+   * client; resources never call the client directly.
+   */
+  async contacts(): Promise<Contact[]> {
+    return this.client.getContacts();
+  }
+
+  /**
    * The current injected-clock time, in ms. The sole "now" the tool layer uses
    * for relative-time digests — never `Date.now()` (PRD §6).
    */
