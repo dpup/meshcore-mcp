@@ -10,7 +10,7 @@
         "zod": "^3.25.0",
       },
       "devDependencies": {
-        "@dpup/meshcore-sim": "^0.1.1",
+        "@dpup/meshcore-sim": "^0.2.0",
         "@liamcottle/meshcore.js": "^1.13.0",
         "@types/node": "^22.0.0",
         "typedoc": "^0.28.19",
@@ -21,7 +21,7 @@
     },
   },
   "packages": {
-    "@dpup/meshcore-sim": ["@dpup/meshcore-sim@0.1.1", "", { "peerDependencies": { "@dpup/meshcore-ts": "^0.1.1", "@liamcottle/meshcore.js": "^1.13.0" } }, "sha512-6j6U5uB2lrhI/6TEcYs6zeumGD07J9IL91OVdRW25aRzBJdY+QslumKRhQiMzwH2wPWii1Az8ax89Mwx44gpTA=="],
+    "@dpup/meshcore-sim": ["@dpup/meshcore-sim@0.2.0", "", { "peerDependencies": { "@dpup/meshcore-ts": "^0.1.1", "@liamcottle/meshcore.js": "^1.13.0" } }, "sha512-aelVnqnup0LjXXUoX44FKmC6LBzmFeemJKYLxp6gdgvaz7A5PfKwROBhHOSIRiNEkrVZC2vz3zy7ewl+42jGLQ=="],
 
     "@dpup/meshcore-ts": ["@dpup/meshcore-ts@0.1.1", "", { "dependencies": { "@liamcottle/meshcore.js": "^1.13.0" } }, "sha512-EZZpXSQJd47s9YLBvmy52BXjougpzy5GfK7+1s/i5yvwwtjQKX/fxgBL6YEypOP316v8tnUDj8zi9SX8UqgLqQ=="],
 

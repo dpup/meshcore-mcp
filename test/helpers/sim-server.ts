@@ -32,7 +32,7 @@ import {
   SimConnection,
   toMillis,
 } from "@dpup/meshcore-sim";
-import type { MeshWorld, Scenario } from "@dpup/meshcore-sim";
+import type { MeshWorld, Responder, Scenario } from "@dpup/meshcore-sim";
 
 import { createServer } from "../../src/server.js";
 import { MeshService } from "../../src/service/mesh-service.js";
@@ -48,6 +48,8 @@ export interface MakeSimServerOptions {
   clock?: SimClock;
   /** Per-node login credentials for the remote-health path (default guest). */
   credentials?: CredentialsProvider;
+  /** Reactive-reply rules (meshcore-sim ≥ 0.2.0) — e.g. a remote-admin CLI reply. */
+  responders?: Responder[];
 }
 
 /** The wired full stack plus teardown, returned by {@link makeSimServer}. */
@@ -103,6 +105,7 @@ export async function makeSimServer(opts: MakeSimServerOptions): Promise<SimServ
     world: opts.world,
     clock,
     scenario: opts.scenario,
+    responders: opts.responders,
   });
   const meshClient = new MeshCoreClient(sim.asConnection(), { autoSync: true });
   const service = new MeshService(meshClient, clock, {

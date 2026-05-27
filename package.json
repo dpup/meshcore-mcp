@@ -61,7 +61,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@dpup/meshcore-sim": "^0.1.1",
+    "@dpup/meshcore-sim": "^0.2.0",
     "@liamcottle/meshcore.js": "^1.13.0",
     "@types/node": "^22.0.0",
     "typedoc": "^0.28.19",

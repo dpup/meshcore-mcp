@@ -10,3 +10,6 @@ docs/.api-tmp/
 # lockfile are ignored so an older/other tool can't churn the canonical one.
 bun.lockb
 package-lock.json
+
+# Claude Code local settings (per-user; not shared)
+.claude/settings.local.json

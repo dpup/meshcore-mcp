@@ -40,8 +40,9 @@
  *
  * Note: stdout is the MCP protocol channel — **all logging goes to stderr**.
  */
-import { MeshCoreClient } from "@dpup/meshcore-ts";
+import { MeshCoreClient, TxtType } from "@dpup/meshcore-ts";
 import {
+  RealtimeClock,
   SimClock,
   SimConnection,
   at,
@@ -52,7 +53,7 @@ import {
   scenario,
   traffic,
 } from "@dpup/meshcore-sim";
-import type { Scenario } from "@dpup/meshcore-sim";
+import type { Responder, Scenario } from "@dpup/meshcore-sim";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { createServer } from "../src/server.js";
@@ -116,6 +117,35 @@ function buildScenario(seed: number): Scenario {
   return scenario([...burst.events, ...rest.events]);
 }
 
+/** A plausible repeater CLI reply for a command, for the responder below. */
+function cliReplyFor(cmd: string): string {
+  if (cmd === "reboot") return "OK - rebooting in 3s";
+  if (cmd === "advert" || cmd === "advert.zerohop") return "(advert sent)";
+  if (cmd === "clock sync") return "clock synced";
+  if (cmd.startsWith("set ")) return `OK - ${cmd}`;
+  if (cmd.startsWith("get ")) return cmd.slice(4) + " = <value>";
+  return "OK";
+}
+
+/**
+ * Reactive replies (meshcore-sim ≥ 0.2.0): when the server logs into a repeater
+ * and sends a CLI command as `CliData` text, the addressed node answers — so
+ * remote `admin` actually round-trips here, instead of timing out. The reply
+ * comes back from the same node (`msg.to`), correlated by sender exactly as the
+ * real `login → CliData → reply` handshake is (PRD §6).
+ */
+function buildResponders(): Responder[] {
+  return [
+    {
+      when: (msg) => msg.kind === "contact" && msg.txtType === TxtType.CliData,
+      reply: (msg) =>
+        msg.to === undefined
+          ? undefined
+          : { from: msg.to, text: cliReplyFor(msg.text), after: "1s" },
+    },
+  ];
+}
+
 async function main(): Promise<void> {
   const seed = parseSeed(process.argv.slice(2));
   const world = buildWorld();
@@ -125,7 +155,7 @@ async function main(): Promise<void> {
   // MeshService -> createServer. One SimClock drives both the scenario timeline
   // and the service's event timestamps.
   const clock = new SimClock();
-  const sim = new SimConnection({ world, clock, scenario: scn });
+  const sim = new SimConnection({ world, clock, scenario: scn, responders: buildResponders() });
   const client = new MeshCoreClient(sim.asConnection(), { autoSync: true });
   const service = new MeshService(client, clock);
   await service.start();
@@ -136,12 +166,11 @@ async function main(): Promise<void> {
   log(`serving over stdio — sim mesh "${world.homeNodeId}", seed ${seed}.`);
   log("connect an MCP client (e.g. `claude mcp add meshcore-sim -- bun <this file>`).");
 
-  // Real-time pump: advance virtual time in step with the wall clock so the
-  // scenario fires and live traffic flows while a client is connected. Without
-  // this the simulated clock never moves and the live stream stays silent.
-  const PUMP_MS = 250;
-  const pump = setInterval(() => clock.advance(PUMP_MS), PUMP_MS);
-  pump.unref?.(); // don't keep the process alive on the timer alone
+  // Drive virtual time from the wall clock so the scenario fires and live
+  // traffic flows while a client is connected (meshcore-sim ≥ 0.2.0's
+  // RealtimeClock — the one place real timers are intended). Without it the
+  // simulated clock never moves and the live stream stays silent.
+  const realtime = new RealtimeClock(clock).start();
 
   // Graceful shutdown.
   let shuttingDown = false;
@@ -149,7 +178,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log(`${signal} received, shutting down.`);
-    clearInterval(pump);
+    realtime.stop();
     void (async () => {
       try {
         await service.stop();

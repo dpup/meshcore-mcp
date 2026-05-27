@@ -79,9 +79,9 @@ Then ask Claude to *"survey the mesh"*, *"check the health of Rocky Ridge"*,
 *"show recent traffic"*, or *"preview an admin reboot of Rocky Ridge"*. The
 production binary (`src/cli.ts`) talks only to real devices; the simulator is a
 dev dependency and never ships — this entrypoint is the hardware-free way to try
-the server. (Remote `admin` *execution* against the sim times out, since the
-simulator doesn't generate CLI replies reactively; use `dryRun: true` to see
-previews, or run a home-node command.)
+the server. Remote `admin` execution round-trips too: the sim-server configures
+reactive responders (meshcore-sim ≥ 0.2.0), so `login → CliData → reply` returns
+a plausible CLI reply instead of timing out.
 
 ## The surface
 
