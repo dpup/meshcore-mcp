@@ -3,10 +3,7 @@ name: meshcore-sim
 runtime: docker
 
 dependencies:
-  # Pin bun >= 1.2 so the sandbox uses the text `bun.lock` format. /workspace is
-  # a shared mount, so an older sandbox bun (1.1.x, binary bun.lockb) would fight
-  # the host's lockfile on every install. Keep this in step with the host's bun.
-  - bun@1.3
+  - bun@1.3.9
   - typescript
   - git
   - gh
