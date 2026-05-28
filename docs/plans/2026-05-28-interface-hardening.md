@@ -78,17 +78,63 @@ live stream and likely contributes to the timeouts. It's an upstream
 
 | ID | Issue | Severity | Theme | Status |
 |---|---|---|---|---|
-| H1 | `get_node_health` fails atomically + mislabels a sub-call timeout as "unreachable" | high | A | open |
-| H2 | Transient device timeouts surface as raw `-32603` in **resource** reads (no actionable error) | med | A | open |
-| H3 | No retry/backoff/reconnect — node reboots & WiFi blips hit the consumer raw | high | A | open |
-| H4 | Outbound sends are invisible in `get_recent_traffic` / live stream | med | B | open |
-| H5 | V3 message frames (0x10/0x11) undecoded by meshcore.js 1.13 → missed/stalled messages | high | B (upstream) | open |
-| H6 | Bad channel target says "No contact matches" — `#`-targets should resolve as channels and list known channels on miss | med | — | open |
-| H7 | No `delete_channel` (can add, can't remove) | low | — | open |
-| H8 | `admin` unknown-command error is verbose raw Zod JSON | low | — | open |
+| H1 | `get_node_health` fails atomically + mislabels a sub-call timeout as "unreachable" | high | A | **done (01bf0a1)** |
+| H2 | Transient device timeouts surface as raw `-32603` in **resource** reads (no actionable error) | med | A | **done (eaf7d2b)** |
+| H3 | No retry/backoff/reconnect — node reboots & WiFi blips hit the consumer raw | high | A | **done (01bf0a1)** |
+| H4 | Outbound sends are invisible in `get_recent_traffic` / live stream | med | B | **done (f904b8e)** |
+| H5 | V3 message frames (0x10/0x11) undecoded by meshcore.js 1.13 → missed/stalled messages | high | B (upstream) | **raised (meshcore-ts#3)** |
+| H6 | Bad channel target says "No contact matches" — `#`-targets should resolve as channels and list known channels on miss | med | — | **done (f904b8e)** |
+| H7 | No `delete_channel` (can add, can't remove) | low | — | **done (432d39c)** |
+| H8 | `admin` unknown-command error is verbose raw Zod JSON | low | — | **done (432d39c)** |
 | C1 | Channel discovery + add (`meshcore://channels` + `set_channel`) | — | — | **done (1588497)** |
 
 ---
+
+## Workflow probe — send → monitor acks → report repeats (W1, design)
+
+A mesh propagation/health probe: send a message, watch for the delivery ack, and
+report how many repeats were observed — "is the mesh carrying my traffic, and how
+far?" Researched against meshcore.js + the firmware `companion_protocol.md`, and
+tested against the live node.
+
+**What's actually observable:**
+- **Send** → `sendTextMessage` returns `{ result (route: 0=direct / 1=flood),
+  expectedAckCrc, estTimeout }` (`PACKET_MSG_SENT` 0x06). We learn the route, the
+  ack tag to match, and how long to wait. (`sendChannelTextMessage` returns
+  **void** — see below.)
+- **Ack** (clean) → `sendConfirmed { ackCode, roundTrip }` (`PACKET_ACK` 0x82).
+  Match `ackCode === expectedAckCrc` for a precise delivery confirmation + RTT.
+  **Acks are a direct-message thing** — a broadcast (channel/flood) has no single
+  recipient to ack, so channel sends produce no `sendConfirmed`.
+- **Repeats** (coarse only) → a repeater rebroadcasting your flood is heard as a
+  generic RF-log frame: `logRxData`/`rawData` (`PACKET_LOG_DATA` 0x88, "can be
+  ignored"), opaque bytes. We can **count RF frames in the window** but cannot
+  attribute them to *our* packet without parsing the raw bytes (meshcore-ts
+  leaves them opaque). So "repeats" is an approximate "RF frames heard," not a
+  verified per-message repeat count.
+
+**Live test (isolated node):** a channel send returned void; over 8s, **zero**
+events of any kind. SIERRA Elmer has no contacts and no peers in range, so it
+can't exercise acks (no contact to send a direct message to) or repeats (no
+repeaters). The workflow needs a real multi-node mesh; it's built and tested
+against the **sim** (which can script an ack + RF-frame "repeats" deterministically).
+
+**Proposed shape:** a `probe_send(target, text, window?)` tool +
+`MeshService.probeSend` — send, then over a clock-driven window collect the
+matching `sendConfirmed` (ack + RTT) and count `logRxData`/`rawData` frames,
+returning `{ route, ack: { received, roundTripMs? }, rfFramesObserved, windowMs }`.
+A clean "collapse the mechanical sequence" tool (PRD §4); the agent interprets.
+
+**The fork (needs a call) — how to define "repeats":**
+1. **Coarse (ships now):** count `logRxData`/`rawData` frames in the window,
+   labeled honestly as "RF frames heard" (not verified repeats of your message).
+2. **Precise:** parse `logRxData.raw` to match our packet's hash → a true repeat
+   count. Needs packet parsing meshcore-ts doesn't expose (deeper; likely
+   upstream, akin to H5).
+3. **`tracePath` instead:** meshcore-ts's `tracePath` returns the path hops +
+   per-hop SNR — a precise "how many repeaters relay to X." A different probe
+   (explicit trace, not "monitor my message"), but it gives a real repeat/hop
+   count today. Could be its own `trace_path` tool.
 
 ## Proposed sequence
 
