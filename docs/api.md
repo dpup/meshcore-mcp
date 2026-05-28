@@ -332,7 +332,10 @@ A `remote-only` command targeting the home node throws an
 ##### sendMessage()
 
 ```ts
-sendMessage(target, text): Promise<SendMessageResult>;
+sendMessage(
+   target, 
+   text, 
+confirm?): Promise<SendMessageResult>;
 ```
 
 Send a text message, resolving `target` as either a **contact** or a
@@ -351,10 +354,11 @@ channel — not the raw `SentResult`. An unknown target throws a
 
 ###### Parameters
 
-| Parameter | Type |
-| ------ | ------ |
-| `target` | `string` |
-| `text` | `string` |
+| Parameter | Type | Default value |
+| ------ | ------ | ------ |
+| `target` | `string` | `undefined` |
+| `text` | `string` | `undefined` |
+| `confirm` | `boolean` | `false` |
 
 ###### Returns
 
@@ -1598,6 +1602,16 @@ optional contact?: string;
 
 The resolved contact's display name (for `kind: "contact"`).
 
+##### delivered?
+
+```ts
+optional delivered?: boolean;
+```
+
+Delivery confirmation — present only when `confirm` was requested for a
+**contact** send (channels/broadcasts aren't acked). `true` once the
+recipient's ack arrived; `false` if none did within the window.
+
 ##### kind
 
 ```ts
@@ -1613,6 +1627,22 @@ optional publicKey?: string;
 ```
 
 The resolved contact's hex public key (for `kind: "contact"`).
+
+##### roundTripMs?
+
+```ts
+optional roundTripMs?: number;
+```
+
+Round-trip time of the delivery ack in ms, when `delivered`.
+
+##### route?
+
+```ts
+optional route?: "flood" | "direct";
+```
+
+How the device routed a contact send: `"direct"` or flood.
 
 ##### text
 

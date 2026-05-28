@@ -25,7 +25,9 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
       description:
         "Transmit a text message. `target` is a contact (name or hex public-key " +
         "prefix) or a channel (`#name`, `#index`, or a bare channel index). A " +
-        "resend is a second transmission — not idempotent.",
+        "resend is a second transmission — not idempotent. Set `confirm: true` to " +
+        "wait for the delivery ack and report whether it arrived + the round-trip " +
+        "time (direct messages only — channels/broadcasts aren't acked).",
       inputSchema: {
         target: z
           .string()
@@ -33,6 +35,10 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
             "a contact (name or hex public-key prefix) or a channel (`#name`, `#index`, or a bare channel index)",
           ),
         text: z.string().describe("the message text to transmit"),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("wait for and report the delivery ack + round-trip (direct messages only)"),
       },
       outputSchema: sendMessageOutputShape,
       annotations: {
@@ -42,9 +48,9 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
         openWorldHint: true,
       },
     },
-    async ({ target, text }) => {
+    async ({ target, text, confirm }) => {
       try {
-        const result = await service.sendMessage(target, text);
+        const result = await service.sendMessage(target, text, confirm ?? false);
         return {
           content: [{ type: "text", text: digestSendMessage(result) }],
           // Widen to the SDK's record shape; the outputSchema validates it.

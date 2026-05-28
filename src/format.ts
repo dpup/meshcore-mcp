@@ -210,13 +210,22 @@ export const sendMessageOutputShape = {
   channelIdx: z.number().optional(),
   channelName: z.string().optional(),
   text: z.string(),
+  route: z.enum(["direct", "flood"]).optional().describe("how a contact send was routed"),
+  delivered: z
+    .boolean()
+    .optional()
+    .describe("delivery ack result (only when confirm requested, contact sends): true if acked, false if none arrived in the window"),
+  roundTripMs: z.number().optional().describe("round-trip time of the delivery ack, ms (when delivered)"),
 } as const;
 
 /** A one-line digest of a {@link SendMessageResult}. */
 export function digestSendMessage(r: SendMessageResult): string {
   if (r.kind === "contact") {
     const who = r.publicKey ? `${r.contact} (${shortKey(r.publicKey)})` : r.contact;
-    return `Sent to ${who}: "${r.text}"`;
+    let suffix = r.route ? ` [${r.route}]` : "";
+    if (r.delivered === true) suffix += ` — delivered (ack ${r.roundTripMs}ms)`;
+    else if (r.delivered === false) suffix += ` — sent, no ack yet (unconfirmed)`;
+    return `Sent to ${who}: "${r.text}"${suffix}`;
   }
   const where = r.channelName ? `#${r.channelName} (ch${r.channelIdx})` : `ch${r.channelIdx}`;
   return `Sent to channel ${where}: "${r.text}"`;

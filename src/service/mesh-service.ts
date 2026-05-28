@@ -35,6 +35,7 @@ import type {
   MeshCoreClient,
   MeshCoreEvents,
   SelfInfo,
+  SendConfirmed,
   Stats,
   TraceData,
 } from "@dpup/meshcore-ts";
@@ -107,6 +108,16 @@ export interface SendMessageResult {
   channelName?: string;
   /** The text transmitted. */
   text: string;
+  /** How the device routed a contact send: `"direct"` or flood. */
+  route?: "direct" | "flood";
+  /**
+   * Delivery confirmation — present only when `confirm` was requested for a
+   * **contact** send (channels/broadcasts aren't acked). `true` once the
+   * recipient's ack arrived; `false` if none did within the window.
+   */
+  delivered?: boolean;
+  /** Round-trip time of the delivery ack in ms, when `delivered`. */
+  roundTripMs?: number;
 }
 
 /**
@@ -576,15 +587,15 @@ export class MeshService {
    * channel — not the raw `SentResult`. An unknown target throws a
    * {@link MeshServiceUnknownNodeError}, which the tool layer formats.
    */
-  async sendMessage(target: string, text: string): Promise<SendMessageResult> {
-    const result = await this.transmit(target, text);
+  async sendMessage(target: string, text: string, confirm = false): Promise<SendMessageResult> {
+    const result = await this.transmit(target, text, confirm);
     // H4: record our own send so it surfaces in recent traffic / the live stream.
     this.recordSent(result);
     return result;
   }
 
   /** Resolve `target` and transmit; returns the structured result (no recording). */
-  private async transmit(target: string, text: string): Promise<SendMessageResult> {
+  private async transmit(target: string, text: string, confirm: boolean): Promise<SendMessageResult> {
     // An explicit channel reference: `#name` or `#idx`.
     if (target.startsWith("#")) {
       const ref = target.slice(1);
@@ -617,12 +628,13 @@ export class MeshService {
     // Otherwise a contact by name or hex prefix.
     const contact = await this.resolveContact(target);
     if (contact !== undefined) {
-      await this.client.sendTextMessage(contact, text);
+      const ack = await this.sendContact(contact, text, confirm);
       return {
         kind: "contact",
         contact: contact.advName || target,
         publicKey: contact.publicKey,
         text,
+        ...ack,
       };
     }
 
@@ -762,6 +774,50 @@ export class MeshService {
    * captured message is also recorded by the traffic buffer (the service's own
    * subscription) — that is expected.
    */
+  /**
+   * Send a direct (contact) message and, when `confirm`, wait for its delivery
+   * ack — reporting the route and round-trip. The ack listener is **armed before
+   * the send** and matched by `expectedAckCrc`, so a fast ack (the sim emits one
+   * on the next microtask; real hardware ~hundreds of ms later) is never raced
+   * past. A missing ack within the window is `delivered: false`, not an error.
+   */
+  private async sendContact(
+    contact: Contact,
+    text: string,
+    confirm: boolean,
+  ): Promise<{ route: "direct" | "flood"; delivered?: boolean; roundTripMs?: number }> {
+    if (!confirm) {
+      const sent = await this.client.sendTextMessage(contact, text);
+      return { route: sent.result === 1 ? "flood" : "direct" };
+    }
+
+    const acks: SendConfirmed[] = [];
+    let want: number | undefined;
+    let resolveRt: ((rt: number | null) => void) | undefined;
+    const onAck = (p: SendConfirmed): void => {
+      acks.push(p);
+      if (want !== undefined && p.ackCode === want) resolveRt?.(p.roundTrip);
+    };
+    this.client.on("sendConfirmed", onAck);
+    let timer: TimerHandle | undefined;
+    try {
+      const sent = await this.client.sendTextMessage(contact, text);
+      const route: "direct" | "flood" = sent.result === 1 ? "flood" : "direct";
+      want = sent.expectedAckCrc;
+      const already = acks.find((p) => p.ackCode === want);
+      if (already) return { route, delivered: true, roundTripMs: already.roundTrip };
+      const timeoutMs = Math.min((sent.estTimeout || 4000) + 2000, 30_000);
+      const rt = await new Promise<number | null>((resolve) => {
+        resolveRt = resolve;
+        timer = this.clock.setTimeout(() => resolve(null), timeoutMs);
+      });
+      return rt === null ? { route, delivered: false } : { route, delivered: true, roundTripMs: rt };
+    } finally {
+      this.client.off("sendConfirmed", onAck);
+      if (timer !== undefined) this.clock.clearTimeout(timer);
+    }
+  }
+
   private awaitContactReply(pubKeyPrefix: string, timeoutMs: number): Promise<string> {
     const want = pubKeyPrefix.toLowerCase();
     return new Promise<string>((resolve, reject) => {
