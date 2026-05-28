@@ -239,8 +239,9 @@ export function digestMeshSurvey(s: MeshSurvey, nowMs: number): string {
     rooms > 0 ? `${rooms} rooms` : "",
   ].filter(Boolean).join(", ");
   lines.push(`${s.contacts.length} contact(s) — ${breakdown}:`);
-  const sorted = [...s.contacts].sort((a, b) => b.lastHeardMs - a.lastHeardMs);
-  for (const c of sorted) {
+  // The service is the single owner of roster order: surveyMesh() already
+  // returns contacts most-recently-heard-first, so iterate as-is (no re-sort).
+  for (const c of s.contacts) {
     const ago = relative(nowMs - c.lastHeardMs);
     lines.push(`  ${c.name} [${roleName(c.role)}] ${shortKey(c.publicKey)} — last heard ${ago}`);
   }

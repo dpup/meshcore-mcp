@@ -7,6 +7,7 @@ import {
   traffic,
   at,
 } from "@dpup/meshcore-sim";
+import type { Scenario } from "@dpup/meshcore-sim";
 import { describe, expect, it } from "vitest";
 
 import { makeSimServer } from "./helpers/sim-server.js";
@@ -165,6 +166,53 @@ describe("read tools through a real MCP Client over a sim-backed server", () => 
       expect(typeof c.role).toBe("number");
     }
     expect(text(res)).toContain("Rocky");
+
+    await h.cleanup();
+  });
+
+  it("survey_mesh orders contacts most-recently-heard-first", async () => {
+    // A dedicated world whose contact *declaration* order (Alpha, Bravo, Charlie)
+    // is the **reverse** of the recency order we drive below. The service is the
+    // single owner of roster order (it sorts by lastHeardMs descending); the
+    // digest no longer re-sorts. So if that single sort regressed, the structured
+    // roster would fall back to declaration order and this test would fail.
+    const orderingWorld = defineWorld({
+      homeNodeId: "home",
+      nodes: [
+        node("home", { name: "Base", battery: 80 }),
+        node("n-alpha", { name: "Alpha", role: "repeater" }),
+        node("n-bravo", { name: "Bravo", role: "repeater" }),
+        node("n-charlie", { name: "Charlie", role: "repeater" }),
+      ],
+      channels: [channel(0, "public")],
+      contacts: [
+        contact("Alpha", "n-alpha"),
+        contact("Bravo", "n-bravo"),
+        contact("Charlie", "n-charlie"),
+      ],
+    });
+    // Adverts at distinct, well-separated offsets give each contact a distinct
+    // last-heard time: Alpha earliest, Charlie most recent — recency order is
+    // [Charlie, Bravo, Alpha], the reverse of the declaration order above.
+    const scn: Scenario = scenario([
+      at("2s", { kind: "advert", nodeId: "n-alpha" }),
+      at("5s", { kind: "advert", nodeId: "n-bravo" }),
+      at("9s", { kind: "advert", nodeId: "n-charlie" }),
+    ]);
+    const h = await makeSimServer({ world: orderingWorld, scenario: scn });
+    await h.advance("11s");
+
+    const survey = structured<MeshSurvey>(
+      await h.client.callTool({ name: "survey_mesh", arguments: {} }),
+    );
+
+    // Most-recently-heard first.
+    expect(survey.contacts.map((c) => c.name)).toEqual(["Charlie", "Bravo", "Alpha"]);
+    // And the underlying invariant the names attest to: lastHeardMs strictly
+    // descending across the roster.
+    for (let i = 1; i < survey.contacts.length; i++) {
+      expect(survey.contacts[i - 1]!.lastHeardMs).toBeGreaterThan(survey.contacts[i]!.lastHeardMs);
+    }
 
     await h.cleanup();
   });
