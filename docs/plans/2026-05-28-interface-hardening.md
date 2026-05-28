@@ -111,6 +111,40 @@ the production server and all fixes held:
 - **H8** — unknown admin command → the friendly valid-command list, no Zod JSON.
 - `trace_path` — an unresponsive path returns a graceful actionable timeout.
 
+## Live topology exploration (2026-05-28) → the hop-count/path enhancement (H15)
+
+Re-exercised `survey_mesh` / `get_node_health` / `trace_path` against the real
+node — now a **201-contact** mesh — through the production server.
+
+- **Roster + friendly output scale.** The summary line ("201 contact(s) — 9
+  heard in the last hour, 167 repeaters, 21 rooms"), the recent-first sort, and
+  the relative times all held at 201 contacts. `get_node_health`: `battery
+  4.26V (~100%)`, `radio 910.525MHz / 62.5kHz / SF7 / CR5`, `uptime 15h 40m`,
+  `rx 1071 / tx 7` — a pure listener.
+- **`trace_path` cleanly pins a direct link.** SIERRA Elmer's *one* direct RF
+  neighbour is **SIERRA Mission Outpost** (`dc2bd827…`): a 1-hop trace completed
+  **5/5 at ~11.25 dB**. The entire 201-node view floods in through that single
+  doorway. Distant hilltops (Mt Tam, Diablo, …) and the foothills node **SIERRA
+  Eagle One** time out on a source-routed trace — *not* unreachable (Eagle One
+  genuinely arrives over ~10 LoRa hops via Mt Tam/Diablo per the operator), but
+  because **flood-delivery ≠ source-route-traceable**: an advert floods by
+  whatever path works up to the hop TTL; a trace needs a fixed ordered hop
+  chain, which for a deep node is both unknown and too lossy to complete
+  round-trip. The graceful timeouts (T12 wording) made this legible.
+
+**Enhancement (H15) — surface hop-count + traversed path.** The packets carry
+the hop-count/path an advert traversed (it is shown in the MeshCore **mobile
+app**), but the MCP surface does not expose it — the same raw-frame opacity as
+H5/H7. Surfacing it (advert hop-count + the repeater chain) in `survey_mesh` and
+the contacts/node views would turn the roster into a **topology view** —
+"Eagle One — 10 hops via Mt Tam→Diablo→…" — so an operator sees reachability and
+depth *without* tracing. Likely an **upstream ask**: confirm whether
+`@dpup/meshcore-ts` exposes the advert path field; if not, raise it alongside
+H5/H7. Reduces friction (the roster answers "how far / how do I reach this") and
+creates delight (the mesh draws itself). Operational note: SIERRA Elmer's lone
+direct neighbour is Mission Outpost (`dc2bd827…`, +11.25 dB) — its window onto
+the whole mesh.
+
 ## Issue backlog
 
 | ID | Issue | Severity | Theme | Status |
@@ -124,6 +158,7 @@ the production server and all fixes held:
 | H7 | No `delete_channel` (can add, can't remove) | low | — | **done (432d39c)** |
 | H8 | `admin` unknown-command error is verbose raw Zod JSON | low | — | **done (432d39c)** |
 | C1 | Channel discovery + add (`meshcore://channels` + `set_channel`) | — | — | **done (1588497)** |
+| H15 | No hop-count / traversed path in the roster — can't tell a node's reachability or depth (the mobile app shows it; packets carry it) | med | B (upstream?) | **idea — see "Live topology exploration" above** |
 
 ---
 
