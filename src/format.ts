@@ -37,12 +37,12 @@ export const nodeHealthOutputShape = {
     .optional(),
   radio: z
     .object({
-      freqMhz: z.number(),
-      bwKhz: z.number(),
-      sf: z.number(),
-      cr: z.number(),
-      txPower: z.number(),
-      maxTxPower: z.number(),
+      freqMhz: z.number().describe("centre frequency in MHz"),
+      bwKhz: z.number().describe("bandwidth in kHz"),
+      sf: z.number().describe("spreading factor"),
+      cr: z.number().describe("coding rate (the 'n' in 4/n)"),
+      txPower: z.number().describe("transmit power in dBm"),
+      maxTxPower: z.number().describe("maximum transmit power in dBm"),
     })
     .optional(),
   uptimeSecs: z.number().optional(),
@@ -151,12 +151,16 @@ export const recentTrafficOutputShape = {
   events: z.array(
     z.object({
       id: z.string(),
-      at: z.number(),
+      at: z.number().describe("observed time, ms (epoch in production; virtual-clock ms under the simulator)"),
       kind: z.enum(["contact", "channel", "channelData", "advert", "raw"]),
-      decryptVerified: z.boolean(),
-      sender: z.string().optional(),
+      decryptVerified: z
+        .boolean()
+        .describe(
+          "true only for a decrypt-verified contact/channel message; false for unverified channel datagrams and raw frames — do not treat false as an authentic channel message",
+        ),
+      sender: z.string().optional().describe("sender public-key prefix (hex), where known"),
       channelIdx: z.number().optional(),
-      text: z.string().optional(),
+      text: z.string().optional().describe("decoded text; absent when not decrypt-verified"),
       rssi: z.number().optional(),
       snr: z.number().optional(),
     }),

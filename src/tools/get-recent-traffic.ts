@@ -49,7 +49,14 @@ export function registerGetRecentTraffic(server: McpServer, service: MeshService
         "tagged with structural provenance (kind + decrypt-verified). Optional " +
         "`since` (ISO-8601 datetime or epoch-ms) windows to events at/after that " +
         "time. In sim tests `since` is a virtual-clock ms number.",
-      inputSchema: { since: z.union([z.string(), z.number()]).optional() },
+      inputSchema: {
+        since: z
+          .union([z.string(), z.number()])
+          .optional()
+          .describe(
+            "only events at or after this time — an ISO-8601 datetime or epoch-ms; omit for all buffered traffic",
+          ),
+      },
       outputSchema: recentTrafficOutputShape,
       annotations: {
         readOnlyHint: true,

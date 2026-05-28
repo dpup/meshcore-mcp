@@ -25,7 +25,14 @@ export function registerGetNodeHealth(server: McpServer, service: MeshService): 
         "uptime/queue, and packet/radio stats. Omit `node` for the connected " +
         "home node; pass a contact name or hex public-key prefix for a remote " +
         "repeater (logs in and reads its status).",
-      inputSchema: { node: z.string().optional() },
+      inputSchema: {
+        node: z
+          .string()
+          .optional()
+          .describe(
+            "a contact name or hex public-key prefix for a remote node; omit for the connected home node",
+          ),
+      },
       outputSchema: nodeHealthOutputShape,
       annotations: {
         readOnlyHint: true,

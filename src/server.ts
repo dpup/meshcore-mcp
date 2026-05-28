@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerPrompts } from "./prompts/index.js";
 import { registerContacts } from "./resources/contacts.js";
 import { registerNodes } from "./resources/nodes.js";
@@ -51,7 +52,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       version: options.version ?? VERSION,
     },
     options.service !== undefined
-      ? { capabilities: { resources: { subscribe: true } } }
+      ? { capabilities: { resources: { subscribe: true } }, instructions: SERVER_INSTRUCTIONS }
       : {},
   );
 

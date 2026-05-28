@@ -26,7 +26,14 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
         "Transmit a text message. `target` is a contact (name or hex public-key " +
         "prefix) or a channel (`#name`, `#index`, or a bare channel index). A " +
         "resend is a second transmission — not idempotent.",
-      inputSchema: { target: z.string(), text: z.string() },
+      inputSchema: {
+        target: z
+          .string()
+          .describe(
+            "a contact (name or hex public-key prefix) or a channel (`#name`, `#index`, or a bare channel index)",
+          ),
+        text: z.string().describe("the message text to transmit"),
+      },
       outputSchema: sendMessageOutputShape,
       annotations: {
         readOnlyHint: false,
