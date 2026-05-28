@@ -143,6 +143,16 @@ the text `bun.lock`; bun 1.1.x writes the binary `bun.lockb` (gitignored).
    typed `outputSchema`; failures are `isError` results via `toolError`, never a
    thrown exception or a raw frame.
 7. **stdout is the MCP channel** — diagnostics go to stderr only.
+8. **Radio units: surface is MHz/kHz; the device wire is kHz (freq) / Hz (bw)**
+   (confirmed on hardware: 869.618 MHz → `radioFreq` 869618; 62.5 kHz →
+   `radioBw` 62500). `set-radio`'s `home()` must scale **both** ×1000; the health
+   read normalises **both** ÷1000 (`freqMhz`/`bwKhz`). The remote CLI takes
+   MHz/kHz directly. Keep read and write in the same units.
+9. **Fuzzy-input tolerance** (`src/coerce.ts`) — numeric/enum params accept the
+   variants an LLM emits (kHz/Hz, `"22 dBm"`, `"SF7"`, `"4/5"`) and normalise,
+   then range-check. The accepted forms live in each param's `.describe()` and
+   surface in the `admin` tool description. Don't replace a coerced param with a
+   bare `z.number()`.
 8. **The drift test stays honest** — `test/drift.test.ts` names every
    `MeshCoreClient` method/event and MCP SDK entry point the server depends on; a
    dependency bump that moves either contract fails there, loudly. Reconcile, do

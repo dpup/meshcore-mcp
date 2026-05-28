@@ -283,7 +283,7 @@ async function main(): Promise<void> {
   line(
     `${paint(C.green, "✓")} get_node_health ${bold(home.node)} ${dim("(home)")}: ` +
       `${home.battery ? `battery=${(home.battery.milliVolts / 1000).toFixed(2)}V ` : ""}` +
-      `${home.radio ? `radio=${(home.radio.freqKhz / 1000).toFixed(3)}MHz/SF${home.radio.sf} ` : ""}` +
+      `${home.radio ? `radio=${home.radio.freqMhz.toFixed(3)}MHz/SF${home.radio.sf} ` : ""}` +
       dim(short(home.publicKey ?? "")),
   );
 

@@ -646,8 +646,10 @@ export class MeshService {
       deviceTimeMs: deviceTime.getTime(),
       battery: { milliVolts: batteryMilliVolts, volts: batteryMilliVolts / 1000 },
       radio: {
-        freqKhz: self.radioFreq,
-        bwKhz: self.radioBw,
+        // Device wire units are kHz (freq) and Hz (bw); normalise to the
+        // surface units MHz / kHz so read and write speak the same language.
+        freqMhz: self.radioFreq / 1000,
+        bwKhz: self.radioBw / 1000,
         sf: self.radioSf,
         cr: self.radioCr,
         txPower: self.txPower,

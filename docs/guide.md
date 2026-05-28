@@ -221,6 +221,17 @@ express it):
   meshcore.js 1.13.0 (sessions expire server-side), and **no request/response id**
   on the wire — both are handled by the dispatch, not exposed.
 
+### Units & fuzzy inputs
+
+The surface speaks **MHz** (frequency) and **kHz** (bandwidth) — `set-radio`
+with `freqMhz: 910.525, bwKhz: 62.5`. The device wire units differ (frequency in
+kHz, bandwidth in **Hz**); the conversion happens at the `MeshCoreClient`
+boundary, and `get_node_health` reports the same MHz/kHz so reads and writes
+match. Numeric/enum params are **fuzzy-tolerant** (`src/coerce.ts`): an LLM may
+pass `bwKhz: 62500` (Hz), `freqMhz: 910525` (kHz), `"22 dBm"`, `"SF7"`, or
+`"4/5"`, and they normalise to the canonical unit before a strict range check.
+The accepted forms are listed in the `admin` tool description.
+
 ### Dry-run / preview
 
 `admin(node, command, { … }, true)` returns a **synthesized preview** of intent

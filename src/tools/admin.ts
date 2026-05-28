@@ -51,10 +51,21 @@ function paramSummary(schema: z.ZodTypeAny): string {
   return keys.map((k) => `${k}: ${describeField(shape[k])}`).join(", ");
 }
 
-/** A coarse human type name for one Zod field (for the description only). */
+/**
+ * A human hint for one Zod field (for the description only). Prefers the field's
+ * own `.describe()` text — which is where the unit + accepted-format guidance
+ * lives for fuzzy-friendly params (`coerce.ts`) — then unwraps effect/optional
+ * wrappers, then falls back to a coarse type name.
+ */
 function describeField(field: z.ZodTypeAny | undefined): string {
-  const typeName = (field as { _def?: { typeName?: string } } | undefined)?._def?.typeName;
-  switch (typeName) {
+  const def = (field as { _def?: Record<string, unknown> } | undefined)?._def;
+  if (def === undefined) return "value";
+  if (typeof def.description === "string" && def.description !== "") return def.description;
+  // Unwrap z.preprocess/transform (ZodEffects: `.schema`) and
+  // optional/nullable/default (`.innerType`) to the underlying field.
+  const inner = (def.schema ?? def.innerType) as z.ZodTypeAny | undefined;
+  if (inner !== undefined) return describeField(inner);
+  switch (def.typeName) {
     case "ZodNumber":
       return "number";
     case "ZodBoolean":
@@ -63,10 +74,6 @@ function describeField(field: z.ZodTypeAny | undefined): string {
       return "enum";
     case "ZodString":
       return "string";
-    case "ZodNullable":
-    case "ZodOptional":
-    case "ZodDefault":
-      return "optional";
     default:
       return "value";
   }

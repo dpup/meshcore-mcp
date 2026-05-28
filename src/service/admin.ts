@@ -28,6 +28,8 @@
 import type { MeshCoreClient } from "@dpup/meshcore-ts";
 import { z } from "zod";
 
+import * as coerce from "../coerce.js";
+
 /**
  * A command's risk tier. Maps deterministically to MCP annotations via
  * {@link annotationsForTier} (execution plan §9's table). The `read` tier is
@@ -183,7 +185,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "set-tx-power",
     tier: "config",
     scope: "home+remote",
-    params: z.object({ dbm: z.number().int().min(1).max(22) }),
+    params: z.object({ dbm: coerce.numeric((s) => s.int().min(1).max(22), "transmit power in dBm, 1–22") }),
     preview: (node, p) =>
       `Set ${node} TX power to ${p.dbm} dBm. ⚠ Confirm legal for your band/region; some boards add a PA stage on top.`,
     home: (client, _node, p) => client.setTxPower(p.dbm),
@@ -195,17 +197,25 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     tier: "config",
     scope: "home+remote",
     params: z.object({
-      freqMhz: z.number(),
-      bwKhz: z.number(),
-      sf: z.number().int().min(5).max(12),
-      cr: z.number().int().min(5).max(8),
+      freqMhz: coerce.freqMhz,
+      bwKhz: coerce.bwKhz,
+      sf: coerce.sf,
+      cr: coerce.cr,
     }),
     preview: (node, p) =>
       `Set ${node} radio to ${p.freqMhz} MHz / ${p.bwKhz} kHz / SF${p.sf} / CR${p.cr}. ` +
       `⚠ Applies after a reboot; if it stops matching the mesh, ${node} drops off the network.`,
-    // setRadioParams takes the centre frequency in kHz; the param is in MHz.
+    // The device wire units are kHz for frequency and **Hz** for bandwidth
+    // (confirmed against a live node: 869.618 MHz → radioFreq 869618; 62.5 kHz →
+    // radioBw 62500). Our params are MHz / kHz, so scale both by 1000 here.
     home: (client, _node, p) =>
-      client.setRadioParams(Math.round(p.freqMhz * 1000), p.bwKhz, p.sf, p.cr),
+      client.setRadioParams(
+        Math.round(p.freqMhz * 1000),
+        Math.round(p.bwKhz * 1000),
+        p.sf,
+        p.cr,
+      ),
+    // The repeater CLI `set radio` takes MHz and kHz directly — pass through.
     remoteCli: (p) => `set radio ${p.freqMhz},${p.bwKhz},${p.sf},${p.cr}`,
   }),
 
@@ -262,7 +272,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "set-dutycycle",
     tier: "config",
     scope: "remote-only",
-    params: z.object({ percent: z.number().int().min(1).max(100) }),
+    params: z.object({ percent: coerce.numeric((s) => s.int().min(1).max(100), "duty-cycle limit, 1–100 (percent)") }),
     preview: (node, p) =>
       `Set ${node} duty-cycle limit to ${p.percent}%. ` +
       `(firmware ≥ 1.15; older nodes use the airtime-factor knob.)`,

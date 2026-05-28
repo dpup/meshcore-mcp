@@ -1277,7 +1277,7 @@ Radio configuration — home node only (read from `SelfInfo`).
 bwKhz: number;
 ```
 
-Bandwidth, in kHz.
+Bandwidth, in kHz (device wire unit is Hz; normalised here).
 
 ###### cr
 
@@ -1287,13 +1287,13 @@ cr: number;
 
 Coding-rate denominator.
 
-###### freqKhz
+###### freqMhz
 
 ```ts
-freqKhz: number;
+freqMhz: number;
 ```
 
-Centre frequency, in kHz.
+Centre frequency, in MHz (device wire unit is kHz; normalised here).
 
 ###### maxTxPower
 

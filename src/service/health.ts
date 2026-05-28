@@ -54,9 +54,9 @@ export interface NodeHealth {
 
   /** Radio configuration — home node only (read from `SelfInfo`). */
   radio?: {
-    /** Centre frequency, in kHz. */
-    freqKhz: number;
-    /** Bandwidth, in kHz. */
+    /** Centre frequency, in MHz (device wire unit is kHz; normalised here). */
+    freqMhz: number;
+    /** Bandwidth, in kHz (device wire unit is Hz; normalised here). */
     bwKhz: number;
     /** Spreading factor. */
     sf: number;

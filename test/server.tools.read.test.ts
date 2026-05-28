@@ -69,8 +69,9 @@ describe("read tools through a real MCP Client over a sim-backed server", () => 
     expect(health.node).toBe("Base");
     expect(health.reachable).toBe(true);
     expect(health.publicKey).toMatch(/^[0-9a-f]{64}$/);
-    // Radio config from SelfInfo (the US 910.525 MHz preset).
-    expect(health.radio?.freqKhz).toBe(910_525);
+    // Radio config from SelfInfo (the US 910.525 MHz preset), normalised to
+    // MHz / kHz (device wire units are kHz / Hz).
+    expect(health.radio?.freqMhz).toBe(910.525);
     expect(health.radio?.sf).toBe(10);
     expect(health.radio?.cr).toBe(5);
     // Battery: 80% on the 3000..4200mV model = 3960mV.

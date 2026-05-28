@@ -37,7 +37,7 @@ export const nodeHealthOutputShape = {
     .optional(),
   radio: z
     .object({
-      freqKhz: z.number(),
+      freqMhz: z.number(),
       bwKhz: z.number(),
       sf: z.number(),
       cr: z.number(),
@@ -78,7 +78,7 @@ export function digestNodeHealth(h: NodeHealth): string {
   }
   if (h.radio) {
     lines.push(
-      `radio ${(h.radio.freqKhz / 1000).toFixed(3)}MHz / ${h.radio.bwKhz}kHz / ` +
+      `radio ${h.radio.freqMhz.toFixed(3)}MHz / ${h.radio.bwKhz}kHz / ` +
         `SF${h.radio.sf} / CR${h.radio.cr}, TX ${h.radio.txPower}/${h.radio.maxTxPower}dBm`,
     );
   }
