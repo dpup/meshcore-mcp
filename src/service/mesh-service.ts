@@ -45,13 +45,20 @@ import { fromHex, MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 import { randomBytes } from "node:crypto";
 
 import type { Clock, TimerHandle } from "../clock.js";
-import { backoffDelay, withRetry } from "../retry.js";
+import { withRetry } from "../retry.js";
 import type { AdminCommandDef, RiskTier, TierAnnotations } from "./admin.js";
 import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
 import { toSurveyContact } from "./health.js";
+import { ReconnectDaemon } from "./reconnect.js";
+import { Resolver } from "./resolver.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
+
+// Re-export so the symbol stays reachable at this module path (it is constructed
+// by the resolver now, but was historically exported from here; no external
+// importer depends on it, and it is not on the public `index.ts` surface).
+export { MeshServiceUnknownChannelError } from "./resolver.js";
 
 /**
  * Thrown by {@link MeshService.nodeHealth} when `node` matches no known contact
@@ -62,18 +69,6 @@ export class MeshServiceUnknownNodeError extends MeshCoreError {
   constructor(node: string) {
     super(`No contact matches "${node}"`);
     this.name = "MeshServiceUnknownNodeError";
-  }
-}
-
-/**
- * Thrown by {@link MeshService.sendMessage} when a `#`-prefixed target resolves
- * to no channel — channel-aware, unlike the generic contact miss (H6). Carries
- * a hint listing the known channels.
- */
-export class MeshServiceUnknownChannelError extends MeshCoreError {
-  constructor(target: string, hint: string) {
-    super(`no channel matches "${target}".${hint}`);
-    this.name = "MeshServiceUnknownChannelError";
   }
 }
 
@@ -221,6 +216,22 @@ function parseTracePath(path: string): Uint8Array {
   return fromHex(cleaned);
 }
 
+/**
+ * Read a `Promise.allSettled` result for a degradable sub-call: return its value
+ * on fulfilment, or push `label` onto `degraded` and return `undefined` on
+ * rejection. Replaces the comma-operator idiom (`(degraded.push(x), undefined)`)
+ * that smuggled the side effect into an assignment — same result, readable.
+ */
+function settled<T>(
+  r: PromiseSettledResult<T>,
+  label: string,
+  degraded: string[],
+): T | undefined {
+  if (r.status === "fulfilled") return r.value;
+  degraded.push(label);
+  return undefined;
+}
+
 /** Map a meshcore-ts {@link TraceData} into the friendlier {@link TraceResult}. */
 function toTraceResult(trace: TraceData): TraceResult {
   const hashes = trace.pathHashes.match(/.{2}/g) ?? [];
@@ -321,11 +332,14 @@ export class MeshService {
     event: keyof MeshCoreEvents & string;
     fn: (...args: never[]) => void;
   }> = [];
-  /** Reconnect-daemon state — see {@link onClientDisconnected}. */
-  private reconnectAttempt = 0;
-  private reconnectScheduled = false;
-  private stopping = false;
-  private readonly onClientDisconnected: () => void;
+  /**
+   * The auto-reconnect daemon — the self-contained device-link lifecycle.
+   * Constructed here with the injected client + clock; attached in {@link start},
+   * detached + stopped in {@link stop}.
+   */
+  private readonly reconnect: ReconnectDaemon;
+  /** Contact/channel resolution, sharing the injected client + retry wrapper. */
+  private readonly resolver: Resolver;
 
   /**
    * @param client - An already-built {@link MeshCoreClient} (real or sim-backed).
@@ -344,9 +358,8 @@ export class MeshService {
     this.credentials = options.credentials;
     this.adminReplyTimeoutMs =
       options.adminReplyTimeoutMs ?? DEFAULT_ADMIN_REPLY_TIMEOUT_MS;
-    this.onClientDisconnected = () => {
-      if (!this.stopping) this.scheduleReconnect();
-    };
+    this.reconnect = new ReconnectDaemon(client, clock);
+    this.resolver = new Resolver(client, (fn) => this.request(fn));
   }
 
   /**
@@ -354,7 +367,7 @@ export class MeshService {
    * **Use only for idempotent operations** — reads, `set-*` config, `set_channel`,
    * `login`/`getStatus`/`getTelemetry`. Don't wrap `sendTextMessage`, `reboot`,
    * `sendAdvert` — those non-idempotent ops surface failures cleanly; the
-   * reconnect daemon below brings the link back across a node reboot or WiFi blip.
+   * {@link ReconnectDaemon} brings the link back across a node reboot or WiFi blip.
    */
   private request<T>(fn: () => Promise<T>): Promise<T> {
     return withRetry(fn, {
@@ -369,43 +382,6 @@ export class MeshService {
   }
 
   /**
-   * Schedule a reconnect attempt after exp backoff (capped). Re-entrant-safe via
-   * `reconnectScheduled`. Stops scheduling new attempts once {@link stop} runs.
-   *
-   * The backoff curve is the shared {@link backoffDelay} policy (the same one
-   * `withRetry` uses), with `reconnectAttempt` as its 0-based index — so the
-   * first schedule waits the base delay and each retry doubles up to the cap.
-   */
-  private scheduleReconnect(): void {
-    if (this.reconnectScheduled || this.stopping) return;
-    this.reconnectScheduled = true;
-    const delayMs = backoffDelay(this.reconnectAttempt);
-    this.clock.setTimeout(() => {
-      this.reconnectScheduled = false;
-      void this.attemptReconnect();
-    }, delayMs);
-  }
-
-  /** One reconnect attempt; on failure, reschedule with growing backoff. */
-  private async attemptReconnect(): Promise<void> {
-    if (this.stopping) return;
-    this.reconnectAttempt += 1;
-    process.stderr.write(
-      `meshcore-mcp: device disconnected; reconnect attempt ${this.reconnectAttempt}…\n`,
-    );
-    try {
-      await this.client.connect();
-      this.reconnectAttempt = 0;
-      process.stderr.write("meshcore-mcp: device reconnected.\n");
-    } catch (e) {
-      process.stderr.write(
-        `meshcore-mcp: reconnect failed: ${e instanceof Error ? e.message : String(e)}\n`,
-      );
-      this.scheduleReconnect();
-    }
-  }
-
-  /**
    * Connect the client, subscribe to its live events, and begin feeding the
    * traffic buffer. Idempotent: a second call while started is a no-op.
    */
@@ -413,9 +389,9 @@ export class MeshService {
     if (this.started) return;
     this.subscribe();
     // Hook the auto-reconnect daemon onto the client's lifecycle. On
-    // `disconnected` (node reboot, WiFi blip), schedule reconnect with backoff;
-    // idempotent reads bridge over via the retry path.
-    this.client.on("disconnected", this.onClientDisconnected);
+    // `disconnected` (node reboot, WiFi blip), it schedules reconnect with
+    // backoff; idempotent reads bridge over via the retry path.
+    this.reconnect.attach();
     this.started = true;
     await this.client.connect();
   }
@@ -426,8 +402,8 @@ export class MeshService {
    */
   async stop(): Promise<void> {
     if (!this.started) return;
-    this.stopping = true;
-    this.client.off("disconnected", this.onClientDisconnected);
+    this.reconnect.detach();
+    this.reconnect.stop();
     this.unsubscribe();
     // Cancel any in-flight secret-redaction drain timers so a stopped service
     // leaves no pending clock callbacks, and clear the redaction set.
@@ -499,11 +475,11 @@ export class MeshService {
   async nodeHealth(node?: string): Promise<NodeHealth> {
     const self = await this.request(() => this.client.getSelfInfo());
 
-    if (node === undefined || this.isHome(node, self)) {
+    if (node === undefined || this.resolver.isHome(node, self)) {
       return this.homeHealth(self);
     }
 
-    const contact = await this.resolveContact(node);
+    const contact = await this.resolver.resolveContact(node);
     if (contact === undefined) {
       // No such contact — treat it like the home node's own identity match, or
       // fall through to a remote attempt by key only if it looks like hex. A
@@ -570,7 +546,7 @@ export class MeshService {
     index?: number;
   }): Promise<{ index: number; name: string; secret: string }> {
     const secret = opts.secret ?? randomBytes(16).toString("hex");
-    const index = opts.index ?? (await this.nextFreeChannelIndex());
+    const index = opts.index ?? (await this.resolver.nextFreeChannelIndex());
     await this.request(() => this.client.setChannel(index, opts.name, secret));
     return { index, name: opts.name, secret };
   }
@@ -588,7 +564,7 @@ export class MeshService {
         throw new MeshCoreError("delete_channel needs an `index` or a `name`");
       }
       const match = await this.request(() => this.client.findChannelByName(name as string));
-      if (match === undefined) throw await this.unknownChannelError(`#${name}`);
+      if (match === undefined) throw await this.resolver.unknownChannelError(`#${name}`);
       index = match.channelIdx;
       name = match.name;
     }
@@ -611,7 +587,7 @@ export class MeshService {
     if (opts.path !== undefined && opts.path !== "") {
       pathBytes = parseTracePath(opts.path);
     } else if (opts.node !== undefined) {
-      const contact = await this.resolveContact(opts.node);
+      const contact = await this.resolver.resolveContact(opts.node);
       if (contact === undefined) throw new MeshServiceUnknownNodeError(opts.node);
       if (contact.outPathLen <= 0 || contact.outPath === "") {
         throw new MeshCoreError(
@@ -623,18 +599,6 @@ export class MeshService {
       throw new MeshCoreError('trace_path needs a `path` (e.g. "23,5f,3a") or a `node`');
     }
     return toTraceResult(await this.client.tracePath(pathBytes));
-  }
-
-  /**
-   * The next free channel slot. The device returns every slot (configured or
-   * not) with empty-named ones free, so prefer the first empty-named slot;
-   * fall back to one past the highest index when none is empty.
-   */
-  private async nextFreeChannelIndex(): Promise<number> {
-    const channels = await this.request(() => this.client.getChannels());
-    const empty = channels.find((c) => c.name === "");
-    if (empty !== undefined) return empty.channelIdx;
-    return channels.reduce((max, c) => Math.max(max, c.channelIdx), -1) + 1;
   }
 
   /**
@@ -679,9 +643,9 @@ export class MeshService {
     // An explicit channel reference: `#name` or `#idx`.
     if (target.startsWith("#")) {
       const ref = target.slice(1);
-      const channel = await this.resolveChannel(ref);
+      const channel = await this.resolver.resolveChannel(ref);
       if (channel === undefined) {
-        throw await this.unknownChannelError(target);
+        throw await this.resolver.unknownChannelError(target);
       }
       await this.client.sendChannelTextMessage(channel.channelIdx, text);
       return this.channelResult(channel.channelIdx, channel.name, text, confirm);
@@ -690,13 +654,13 @@ export class MeshService {
     // A bare integer is a channel index.
     if (/^\d+$/.test(target)) {
       const idx = Number(target);
-      const channel = await this.resolveChannelByIndex(idx);
+      const channel = await this.resolver.resolveChannelByIndex(idx);
       await this.client.sendChannelTextMessage(idx, text);
       return this.channelResult(idx, channel?.name, text, confirm);
     }
 
     // Otherwise a contact by name or hex prefix.
-    const contact = await this.resolveContact(target);
+    const contact = await this.resolver.resolveContact(target);
     if (contact !== undefined) {
       const ack = await this.sendContact(contact, text, confirm);
       return {
@@ -709,7 +673,7 @@ export class MeshService {
     }
 
     // Last resort: a channel matched by name (no `#` prefix).
-    const channel = await this.resolveChannel(target);
+    const channel = await this.resolver.resolveChannel(target);
     if (channel !== undefined) {
       await this.client.sendChannelTextMessage(channel.channelIdx, text);
       return this.channelResult(channel.channelIdx, channel.name, text, confirm);
@@ -796,7 +760,7 @@ export class MeshService {
     }
 
     const self = await this.request(() => this.client.getSelfInfo());
-    const isHome = this.isHome(node, self);
+    const isHome = this.resolver.isHome(node, self);
 
     // Home dispatch: only when the node is home, the command is home-reachable,
     // and a structured path exists.
@@ -850,7 +814,7 @@ export class MeshService {
     def: AdminCommandDef,
     params: unknown,
   ): Promise<AdminResult> {
-    const contact = await this.resolveContact(node);
+    const contact = await this.resolver.resolveContact(node);
     if (contact === undefined) {
       // Nothing to log in to — surface it the same way an unreachable node is.
       throw new MeshServiceUnknownNodeError(node);
@@ -995,68 +959,6 @@ export class MeshService {
   }
 
   /**
-   * Resolve a channel by index or name (a `#`-stripped ref). A purely numeric
-   * ref is an index; otherwise it is matched by name. Returns `undefined` when
-   * neither matches.
-   */
-  private async resolveChannel(ref: string): Promise<Channel | undefined> {
-    if (/^\d+$/.test(ref)) {
-      return this.resolveChannelByIndex(Number(ref));
-    }
-    return this.request(() => this.client.findChannelByName(ref));
-  }
-
-  /**
-   * Build a channel-aware "not found" error (H6): a `#`-target is unambiguously
-   * a channel, so don't report a contact miss — say so and list the known
-   * channels to choose from.
-   */
-  private async unknownChannelError(target: string): Promise<MeshCoreError> {
-    const known = (await this.channels().catch(() => []))
-      .filter((c) => c.name !== "")
-      .map((c) => `#${c.name}`);
-    const hint = known.length > 0 ? ` Known channels: ${known.join(", ")}.` : "";
-    return new MeshServiceUnknownChannelError(target, hint);
-  }
-
-  /**
-   * Resolve a channel by its numeric index, returning `undefined` if the device
-   * reports no such slot (a failed read is swallowed — the send itself still
-   * goes out by index, the lookup is only to enrich the result digest).
-   */
-  private async resolveChannelByIndex(idx: number): Promise<Channel | undefined> {
-    try {
-      return await this.client.getChannel(idx);
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * Whether `node` refers to the connected home device — by its advertised
-   * name or by a hex prefix of its public key. Used to route a named/keyed
-   * `nodeHealth` request to the home snapshot rather than a remote login.
-   */
-  private isHome(node: string, self: SelfInfo): boolean {
-    if (node === self.name) return true;
-    const ref = node.toLowerCase();
-    return /^[0-9a-f]+$/.test(ref) && self.publicKey.startsWith(ref);
-  }
-
-  /**
-   * Resolve a contact by advertised name, then (failing that) by hex
-   * public-key prefix. Returns `undefined` when neither matches.
-   */
-  private async resolveContact(node: string): Promise<Contact | undefined> {
-    const byName = await this.request(() => this.client.findContactByName(node));
-    if (byName !== undefined) return byName;
-    if (/^[0-9a-f]+$/i.test(node)) {
-      return this.request(() => this.client.findContactByPublicKeyPrefix(node.toLowerCase()));
-    }
-    return undefined;
-  }
-
-  /**
    * Assemble the **home** snapshot from the structured companion-protocol
    * reads: identity + radio config (`getSelfInfo`), battery, device time, and
    * the three stat groups. Stat reads are gathered together; a missing field
@@ -1082,11 +984,11 @@ export class MeshService {
     ]);
 
     const degraded: string[] = [];
-    const battery = batteryR.status === "fulfilled" ? batteryR.value : (degraded.push("battery"), undefined);
-    const deviceTime = deviceTimeR.status === "fulfilled" ? deviceTimeR.value : (degraded.push("deviceTime"), undefined);
-    const core = coreR.status === "fulfilled" ? coreR.value : (degraded.push("statsCore"), undefined);
-    const radioStats = radioR.status === "fulfilled" ? radioR.value : (degraded.push("statsRadio"), undefined);
-    const packets = packetsR.status === "fulfilled" ? packetsR.value : (degraded.push("statsPackets"), undefined);
+    const battery = settled(batteryR, "battery", degraded);
+    const deviceTime = settled(deviceTimeR, "deviceTime", degraded);
+    const core = settled(coreR, "statsCore", degraded);
+    const radioStats = settled(radioR, "statsRadio", degraded);
+    const packets = settled(packetsR, "statsPackets", degraded);
 
     const stats: NonNullable<NodeHealth["stats"]> = {};
     let uptimeSecs: number | undefined;
