@@ -2062,7 +2062,8 @@ A wildly-off value (far future, or an epoch-0 timestamp → decades) is bogus.
 
 The promotion ladder *rounds* at each boundary (so 90s → "2m ago", 36h →
 "2d ago"); contrast `formatDuration`, which *truncates* into fixed d/h/m/s
-buckets. Both lean on the same `splitDhms` unit constants.
+buckets via `splitDhms`. This renderer does not call `splitDhms` — the two
+share only the day/hour/minute/second unit constants.
 
 #### Parameters
 

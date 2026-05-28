@@ -32,9 +32,11 @@ const SECS_PER_DAY = 86_400;
 
 /**
  * Split a non-negative seconds count into whole day/hour/minute/second
- * components (the remainder after the larger units). The shared arithmetic the
- * two renderers below reason about so the day/hour/minute/second constants and
- * splitting live in exactly one place.
+ * components (the remainder after the larger units). This is
+ * {@link formatDuration}'s helper — {@link formatRelative} does *not* call it
+ * (it rounds, rather than truncating into fixed buckets). What the two renderers
+ * share is the day/hour/minute/second unit constants, which live in exactly one
+ * place; the splitting itself is `formatDuration`-only.
  */
 function splitDhms(totalSecs: number): { d: number; h: number; m: number; s: number } {
   return {
@@ -56,7 +58,8 @@ function splitDhms(totalSecs: number): { d: number; h: number; m: number; s: num
  *
  * The promotion ladder *rounds* at each boundary (so 90s → "2m ago", 36h →
  * "2d ago"); contrast `formatDuration`, which *truncates* into fixed d/h/m/s
- * buckets. Both lean on the same `splitDhms` unit constants.
+ * buckets via `splitDhms`. This renderer does not call `splitDhms` — the two
+ * share only the day/hour/minute/second unit constants.
  */
 export function formatRelative(elapsedMs: number): string {
   if (!Number.isFinite(elapsedMs)) return "unknown";

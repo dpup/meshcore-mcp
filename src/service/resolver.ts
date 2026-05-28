@@ -4,10 +4,13 @@
  *
  * It owns the order in which a free-form `target` is matched (contact by name,
  * then hex public-key prefix; channel by index, then name), the channel-aware
- * "not found" error (H6), the next-free-slot scan, and the home-node test. Every
- * device read goes through the same injected retry wrapper {@link MeshService}
+ * "not found" error (H6), the next-free-slot scan, and the home-node test. Most
+ * device reads go through the same injected retry wrapper {@link MeshService}
  * uses, so behavior (retry/backoff, swallowed-vs-thrown) is identical to the
- * pre-extraction inline methods.
+ * pre-extraction inline methods. The one exception is
+ * {@link Resolver.resolveChannelByIndex}: it calls `client.getChannel` *directly*
+ * (not via the wrapper), a best-effort index-enrich read whose failure is
+ * swallowed to `undefined` rather than retried.
  *
  * Constructed with the injected {@link MeshCoreClient} and the service's
  * request-wrapper fn (so it shares the exact retry/idempotency policy); it

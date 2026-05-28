@@ -55,11 +55,6 @@ import { Resolver } from "./resolver.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
 
-// Re-export so the symbol stays reachable at this module path (it is constructed
-// by the resolver now, but was historically exported from here; no external
-// importer depends on it, and it is not on the public `index.ts` surface).
-export { MeshServiceUnknownChannelError } from "./resolver.js";
-
 /**
  * Thrown by {@link MeshService.nodeHealth} when `node` matches no known contact
  * (and is not the home node). A {@link MeshCoreError} subclass so the tool

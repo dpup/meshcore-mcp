@@ -27,15 +27,21 @@ import { toolError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /** The MCP config block for a tool — exactly the SDK's `registerTool` config. */
-export interface ServiceToolConfig<InputShape extends ZodRawShape, OutputShape extends ZodRawShape> {
+export interface ServiceToolConfig<InputShape extends ZodRawShape> {
   /** Human title surfaced in the tool list. */
   title: string;
   /** The agent-facing description (enumerates behavior, params, formats). */
   description: string;
   /** The Zod input shape; the SDK validates args against it before `handle`. */
   inputSchema: InputShape;
-  /** The Zod output shape; the SDK validates `structuredContent` against it. */
-  outputSchema: OutputShape;
+  /**
+   * The Zod output shape; the SDK validates `structuredContent` against it at
+   * runtime (`safeParseAsync`). Typed as a bare {@link ZodRawShape} on purpose:
+   * a type parameter here would advertise a compile-time link to `handle`'s
+   * `structured` that does not exist (it stays `object`), so the runtime schema
+   * validation is the real — and only — guarantee.
+   */
+  outputSchema: ZodRawShape;
   /** The MCP tool annotations (read-only/destructive/idempotent/open-world hints). */
   annotations: {
     readOnlyHint?: boolean;
@@ -61,11 +67,11 @@ export interface ToolOutput {
  * in the shared try/catch → {@link toolError} envelope and returns the
  * `{ content, structuredContent }` result.
  */
-export interface ServiceToolSpec<InputShape extends ZodRawShape, OutputShape extends ZodRawShape> {
+export interface ServiceToolSpec<InputShape extends ZodRawShape> {
   /** The tool name (e.g. `"get_node_health"`). */
   name: string;
   /** The MCP config block (title/description/schemas/annotations). */
-  config: ServiceToolConfig<InputShape, OutputShape>;
+  config: ServiceToolConfig<InputShape>;
   /**
    * The error context for a failed call, derived from the validated args — the
    * `{ node?, attempted }` passed to {@link toolError} so messages stay
@@ -98,10 +104,10 @@ type ToolArgs<InputShape extends ZodRawShape> = {
  * single audited widening cast); on a thrown device error it returns
  * `toolError(error, errorContext(args))` — the actionable `isError` result.
  */
-export function registerServiceTool<InputShape extends ZodRawShape, OutputShape extends ZodRawShape>(
+export function registerServiceTool<InputShape extends ZodRawShape>(
   server: McpServer,
   service: MeshService,
-  spec: ServiceToolSpec<InputShape, OutputShape>,
+  spec: ServiceToolSpec<InputShape>,
 ): void {
   server.registerTool(spec.name, spec.config, (async (args: ToolArgs<InputShape>) => {
     try {

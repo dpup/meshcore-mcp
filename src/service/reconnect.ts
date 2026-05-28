@@ -12,9 +12,11 @@
  * The backoff curve is the shared {@link backoffDelay} policy (the same one
  * `withRetry` uses), with the attempt count as its 0-based index — so the first
  * schedule waits the base delay and each retry doubles up to the cap. The daemon
- * is re-entrant-safe (a single pending schedule at a time) and stops scheduling
- * new attempts once {@link stop} runs, so a stopped service leaves no live timers
- * chasing the device.
+ * is re-entrant-safe across **both** windows — a single pending schedule
+ * (`scheduled`) *and* a single in-flight connect (`connecting`) at a time — so a
+ * second `disconnected` arriving while a connect is still pending cannot start a
+ * second concurrent attempt. It stops scheduling new attempts once {@link stop}
+ * runs, so a stopped service leaves no live timers chasing the device.
  */
 
 import type { MeshCoreClient } from "@dpup/meshcore-ts";
@@ -34,6 +36,13 @@ export class ReconnectDaemon {
   private attempt = 0;
   /** Re-entrancy guard — at most one pending scheduled attempt at a time. */
   private scheduled = false;
+  /**
+   * In-flight guard — true while {@link attemptReconnect} is awaiting
+   * `client.connect()`. Closes the window between the timer clearing
+   * {@link scheduled} and the connect resolving, so a second `disconnected`
+   * arriving mid-connect cannot start a second concurrent attempt.
+   */
+  private connecting = false;
   /** Once {@link stop} runs, no new attempts are scheduled. */
   private stopping = false;
   /** The bound `disconnected` handler, retained so {@link detach} removes exactly it. */
@@ -77,14 +86,17 @@ export class ReconnectDaemon {
 
   /**
    * Schedule a reconnect attempt after exp backoff (capped). Re-entrant-safe via
-   * `scheduled`. Stops scheduling new attempts once {@link stop} runs.
+   * `scheduled` (a pending schedule) *and* `connecting` (an in-flight connect):
+   * a second `disconnected` arriving while either is set is a no-op, so the
+   * daemon never runs two `connect()`s concurrently. Stops scheduling new
+   * attempts once {@link stop} runs.
    *
    * The backoff curve is the shared {@link backoffDelay} policy (the same one
    * `withRetry` uses), with the attempt count as its 0-based index — so the
    * first schedule waits the base delay and each retry doubles up to the cap.
    */
   private scheduleReconnect(): void {
-    if (this.scheduled || this.stopping) return;
+    if (this.scheduled || this.stopping || this.connecting) return;
     this.scheduled = true;
     const delayMs = backoffDelay(this.attempt);
     this.clock.setTimeout(() => {
@@ -93,22 +105,36 @@ export class ReconnectDaemon {
     }, delayMs);
   }
 
-  /** One reconnect attempt; on failure, reschedule with growing backoff. */
+  /**
+   * One reconnect attempt; on failure, reschedule with growing backoff. The
+   * `connecting` flag is held across the `await client.connect()` so a second
+   * `disconnected` arriving mid-connect cannot start a concurrent attempt
+   * ({@link scheduleReconnect} bails while it is set). It is cleared in the
+   * `finally` *before* a failure reschedule, so that reschedule still goes
+   * through.
+   */
   private async attemptReconnect(): Promise<void> {
     if (this.stopping) return;
     this.attempt += 1;
     process.stderr.write(
       `meshcore-mcp: device disconnected; reconnect attempt ${this.attempt}…\n`,
     );
+    let failed = false;
+    this.connecting = true;
     try {
       await this.client.connect();
       this.attempt = 0;
       process.stderr.write("meshcore-mcp: device reconnected.\n");
     } catch (e) {
+      failed = true;
       process.stderr.write(
         `meshcore-mcp: reconnect failed: ${e instanceof Error ? e.message : String(e)}\n`,
       );
-      this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
+    // Reschedule only after `connecting` is cleared, so the failure reschedule
+    // is not swallowed by its own in-flight guard.
+    if (failed) this.scheduleReconnect();
   }
 }

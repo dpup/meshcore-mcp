@@ -103,6 +103,43 @@ describe("ReconnectDaemon", () => {
     expect(clock.pending).toBe(0); // handler removed → no schedule
   });
 
+  it("does not start a second connect when disconnected fires mid-connect", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const clock = new ManualClock();
+    // A connect() that hangs until the test lets it resolve, so we can keep one
+    // attempt in flight while a second `disconnected` arrives.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { client, connect, emitDisconnected } = fakeClient(() => gate);
+    const daemon = new ReconnectDaemon(client, clock);
+    daemon.attach();
+
+    // First disconnect → schedule → fire the timer, which clears `scheduled`
+    // and enters attemptReconnect, awaiting the hung connect().
+    emitDisconnected();
+    expect(clock.pending).toBe(1);
+    await clock.fireNext(); // begins the (still-pending) connect
+    expect(connect).toHaveBeenCalledTimes(1);
+    // `scheduled` is already cleared by the timer; only the `connecting` guard
+    // protects the in-flight window now.
+
+    // A second disconnect arrives while connect() is still pending. The
+    // `connecting` guard must make scheduleReconnect a no-op — no second timer.
+    emitDisconnected();
+    expect(clock.pending).toBe(0); // no second schedule while connecting
+    expect(connect).toHaveBeenCalledTimes(1); // still exactly one connect in flight
+
+    // Let the connect resolve; success clears `connecting` with no reschedule.
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(clock.pending).toBe(0);
+    stderr.mockRestore();
+  });
+
   it("reschedules with growing backoff when a connect attempt fails", async () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const clock = new ManualClock();
