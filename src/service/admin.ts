@@ -180,7 +180,9 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "advert",
     tier: "benign",
     scope: "home+remote",
-    params: z.object({ mode: z.enum(["flood", "zerohop"]).default("flood") }),
+    params: z.object({
+      mode: z.enum(["flood", "zerohop"]).default("flood").describe("flood (mesh-wide) or zerohop (neighbours only)"),
+    }),
     preview: (node, p) =>
       `${node} broadcasts a ${p.mode} advert now. Costs airtime; floods propagate mesh-wide.`,
     home: (client, _node, p) =>
@@ -243,9 +245,12 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     scope: "home+remote",
     // ≤32 bytes (UTF-8), per §9.
     params: z.object({
-      name: z.string().refine((n) => Buffer.byteLength(n, "utf8") <= 32, {
-        message: "name must be at most 32 bytes",
-      }),
+      name: z
+        .string()
+        .refine((n) => Buffer.byteLength(n, "utf8") <= 32, {
+          message: "name must be at most 32 bytes",
+        })
+        .describe("advertised name, ≤32 bytes"),
     }),
     preview: (node, p) =>
       `Rename ${node} to "${p.name}" (max 32 bytes, 24 if a location is set).`,
@@ -257,7 +262,10 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "set-location",
     tier: "config",
     scope: "home+remote",
-    params: z.object({ lat: z.number(), lon: z.number() }),
+    params: z.object({
+      lat: z.number().describe("latitude in degrees"),
+      lon: z.number().describe("longitude in degrees"),
+    }),
     preview: (node, p) => `Set ${node}'s advertised location to ${p.lat}, ${p.lon}.`,
     home: (client, _node, p) => client.setAdvertLatLong(p.lat, p.lon),
     // The repeater CLI sets lat/lon separately (§9): `set lat <lat>` + `set lon <lon>`.
@@ -269,7 +277,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     tier: "sensitive",
     scope: "remote-only",
     secret: true,
-    params: z.object({ password: z.string().max(15) }),
+    params: z.object({ password: z.string().max(15).describe("new admin password, ≤15 chars") }),
     preview: (node) =>
       `Change ${node}'s admin password. ⚠ Sent over the mesh as CliData and echoed in the reply; ` +
       `mis-setting can lock out admins. Secret — must not be retained in the traffic buffer.`,
@@ -280,7 +288,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "set-repeat",
     tier: "config",
     scope: "remote-only",
-    params: z.object({ enabled: z.boolean() }),
+    params: z.object({ enabled: z.boolean().describe("true to enable packet repeating") }),
     preview: (node, p) =>
       `Turn packet repeating ${p.enabled ? "on" : "off"} on ${node}.` +
       (p.enabled ? "" : ` ⚠ 'off' stops ${node} relaying mesh traffic.`),
@@ -339,7 +347,9 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "remove-neighbor",
     tier: "destructive",
     scope: "remote-only",
-    params: z.object({ pubKeyPrefix: z.string().regex(/^[0-9a-fA-F]+$/, "expected a hex prefix") }),
+    params: z.object({
+      pubKeyPrefix: z.string().regex(/^[0-9a-fA-F]+$/, "expected a hex prefix").describe("hex public-key prefix"),
+    }),
     preview: (node, p) =>
       `Remove neighbour(s) matching prefix ${p.pubKeyPrefix} from ${node}'s list.`,
     remoteCli: (p) => `neighbor.remove ${p.pubKeyPrefix.toLowerCase()}`,
@@ -350,8 +360,11 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     tier: "sensitive",
     scope: "remote-only",
     params: z.object({
-      pubKey: z.string().regex(/^[0-9a-fA-F]+$/, "expected a hex public key"),
-      level: z.enum(PERMISSION_LEVELS).nullable(),
+      pubKey: z.string().regex(/^[0-9a-fA-F]+$/, "expected a hex public key").describe("hex public key"),
+      level: z
+        .enum(PERMISSION_LEVELS)
+        .nullable()
+        .describe("guest|read|readwrite|admin, or null to remove"),
     }),
     preview: (node, p) =>
       `Set ${p.pubKey}'s permission on ${node} to ${p.level ?? "remove"} (or remove). ` +

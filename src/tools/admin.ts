@@ -46,48 +46,32 @@ export function commandCatalogue(): string {
 }
 
 /**
- * Summarize a command's Zod object schema as a compact `key: type` list. Best
- * effort — used only to enrich the human-facing tool description, never to
- * validate.
+ * Summarize a command's Zod object schema as a compact `key: hint` list, using
+ * only Zod's **public** surface — the {@link z.ZodObject.shape} getter for the
+ * fields and each field's public `.description` getter for the hint. Best effort
+ * and human-facing only (the tool description + `meshcore://help`); never used to
+ * validate. A non-object schema (e.g. the empty-params commands) yields `""`.
  */
 function paramSummary(schema: z.ZodTypeAny): string {
-  const def: unknown = (schema as { _def?: unknown })._def;
-  const shapeFn = (def as { shape?: unknown } | undefined)?.shape;
-  const shape =
-    typeof shapeFn === "function"
-      ? (shapeFn as () => Record<string, z.ZodTypeAny>)()
-      : ((def as { shape?: Record<string, z.ZodTypeAny> } | undefined)?.shape ?? {});
+  if (!(schema instanceof z.ZodObject)) return "";
+  const shape = schema.shape as Record<string, z.ZodTypeAny>;
   const keys = Object.keys(shape);
   if (keys.length === 0) return "";
   return keys.map((k) => `${k}: ${describeField(shape[k])}`).join(", ");
 }
 
 /**
- * A human hint for one Zod field (for the description only). Prefers the field's
- * own `.describe()` text — which is where the unit + accepted-format guidance
- * lives for fuzzy-friendly params (`coerce.ts`) — then unwraps effect/optional
- * wrappers, then falls back to a coarse type name.
+ * A human hint for one Zod field (for the description only). Reads the field's
+ * own public `.description` — set via `.describe()`, which is where the unit +
+ * accepted-format guidance lives for the fuzzy-friendly params (`coerce.ts`) and
+ * for every admin param. A field with no description falls back to a single
+ * generic label; we deliberately do **not** reflect on Zod's internal type names
+ * (a version bump can rename them silently), so missing hints are caught by the
+ * catalogue guard test instead.
  */
 function describeField(field: z.ZodTypeAny | undefined): string {
-  const def = (field as { _def?: Record<string, unknown> } | undefined)?._def;
-  if (def === undefined) return "value";
-  if (typeof def.description === "string" && def.description !== "") return def.description;
-  // Unwrap z.preprocess/transform (ZodEffects: `.schema`) and
-  // optional/nullable/default (`.innerType`) to the underlying field.
-  const inner = (def.schema ?? def.innerType) as z.ZodTypeAny | undefined;
-  if (inner !== undefined) return describeField(inner);
-  switch (def.typeName) {
-    case "ZodNumber":
-      return "number";
-    case "ZodBoolean":
-      return "boolean";
-    case "ZodEnum":
-      return "enum";
-    case "ZodString":
-      return "string";
-    default:
-      return "value";
-  }
+  const description = field?.description;
+  return description !== undefined && description !== "" ? description : "value";
 }
 
 /** Register the `admin` action tool on `server`, backed by `service`. */
