@@ -9,6 +9,12 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](#)
 [![Module: ESM](https://img.shields.io/badge/module-ESM-f7df1e.svg)](#)
 
+**Quick start** — add it to Claude Code pointed at a node, then ask *"survey the mesh"*:
+
+```sh
+claude mcp add meshcore --env MESHCORE_HOST=<node-ip> -- npx -y @dpup/meshcore-mcp
+```
+
 `meshcore-mcp` wraps a [`@dpup/meshcore-ts`](https://github.com/dpup/meshcore-ts)
 `MeshCoreClient` behind a small, deliberately shaped surface of MCP **tools,
 resources, and prompts**. Point an MCP client at a node and operate the mesh in
