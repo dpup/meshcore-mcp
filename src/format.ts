@@ -181,6 +181,20 @@ export function digestNodeHealth(h: NodeHealthOutput): string {
 // survey_mesh
 // ---------------------------------------------------------------------------
 
+/**
+ * The element schema of a contact roster — mirrors `SurveyContact`, the intent
+ * projection of a meshcore-ts `Contact`. Shared by `survey_mesh`
+ * ({@link meshSurveyOutputShape}) and the `meshcore://contacts` resource
+ * ({@link contactsOutputShape}) so the two reads validate against one shape and
+ * cannot drift (and neither leaks a raw `Contact` internal).
+ */
+const surveyContactSchema = z.object({
+  name: z.string(),
+  publicKey: z.string(),
+  role: z.number(),
+  lastHeardMs: z.number(),
+});
+
 /** Output schema (raw shape) for `survey_mesh`. Mirrors {@link MeshSurvey}. */
 export const meshSurveyOutputShape = {
   home: z.object({
@@ -188,14 +202,19 @@ export const meshSurveyOutputShape = {
     publicKey: z.string(),
     role: z.number(),
   }),
-  contacts: z.array(
-    z.object({
-      name: z.string(),
-      publicKey: z.string(),
-      role: z.number(),
-      lastHeardMs: z.number(),
-    }),
-  ),
+  contacts: z.array(surveyContactSchema),
+} as const;
+
+/**
+ * Output schema (raw shape) for the `meshcore://contacts` resource. Mirrors the
+ * `SurveyContact` projection {@link MeshService.contacts} returns; reuses the
+ * same {@link surveyContactSchema} element as {@link meshSurveyOutputShape}.
+ * This is the guard that pins the resource's public JSON to the intent shape —
+ * a meshcore-ts `Contact` reshape can't silently change it.
+ */
+export const contactsOutputShape = {
+  contacts: z.array(surveyContactSchema),
+  count: z.number(),
 } as const;
 
 /** A roster digest: the home node and a last-heard-sorted contact list. */

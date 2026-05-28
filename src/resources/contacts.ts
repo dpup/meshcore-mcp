@@ -2,10 +2,13 @@
  * `meshcore://contacts` — the device's contact list as a pull-style resource
  * (PRD §5.2, M4).
  *
- * A read returns the typed {@link Contact} models from
- * {@link MeshService.contacts} as JSON. No subscription: a point-in-time
- * snapshot the client re-reads on demand. `Date` fields (`lastAdvert`,
- * `lastMod`) serialize to ISO strings via `JSON.stringify`.
+ * A read returns the **intent-shaped** `SurveyContact` projection from
+ * {@link MeshService.contacts} (name, publicKey, role, lastHeardMs) as JSON —
+ * never the raw meshcore-ts `Contact` internals (flags, out-paths, hop counts).
+ * The shape is owned by the service (mirrored by `contactsOutputShape` in
+ * `format.ts`), so a library `Contact` reshape can't silently change this
+ * resource's contract. No subscription: a point-in-time snapshot the client
+ * re-reads on demand. `lastHeardMs` is an injected-clock ms number.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,7 +28,7 @@ export function registerContacts(server: McpServer, service: MeshService): void 
       title: "Contacts",
       description:
         "The home node's stored contact list — each contact's name, public key, " +
-        "role, advertised location, and last-heard time.",
+        "role, and last-heard time.",
       mimeType: "application/json",
     },
     async (uri) => {

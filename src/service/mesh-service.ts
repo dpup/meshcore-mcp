@@ -49,6 +49,7 @@ import { withRetry } from "../retry.js";
 import type { AdminCommandDef, RiskTier, TierAnnotations } from "./admin.js";
 import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
+import { toSurveyContact } from "./health.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
 
@@ -442,11 +443,16 @@ export class MeshService {
 
   /**
    * The device's contact list — the roster behind the `meshcore://contacts`
-   * resource (M4). Returns the typed {@link Contact} models verbatim from the
-   * client; resources never call the client directly.
+   * resource (M4). Returns the **intent-shaped** {@link SurveyContact}
+   * projection (name, publicKey, role, lastHeardMs), not the raw meshcore-ts
+   * {@link Contact}, so the resource's public JSON shape is owned here and a
+   * library `Contact` reshape can't silently change it. Shares the single
+   * `toSurveyContact` mapping with {@link surveyMesh}. Resources never call the
+   * client directly.
    */
-  async contacts(): Promise<Contact[]> {
-    return this.request(() => this.client.getContacts());
+  async contacts(): Promise<SurveyContact[]> {
+    const contacts = await this.request(() => this.client.getContacts());
+    return contacts.map(toSurveyContact);
   }
 
   /**
@@ -509,12 +515,7 @@ export class MeshService {
     ]);
 
     const roster: SurveyContact[] = contacts
-      .map((c) => ({
-        name: c.advName,
-        publicKey: c.publicKey,
-        role: c.type,
-        lastHeardMs: c.lastAdvert.getTime(),
-      }))
+      .map(toSurveyContact)
       // Signal-first: most-recently-heard contacts at the top.
       .sort((a, b) => b.lastHeardMs - a.lastHeardMs);
 

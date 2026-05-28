@@ -149,16 +149,20 @@ The device's configured channels (slot index, name, hex secret).
 ##### contacts()
 
 ```ts
-contacts(): Promise<Contact[]>;
+contacts(): Promise<SurveyContact[]>;
 ```
 
 The device's contact list — the roster behind the `meshcore://contacts`
-resource (M4). Returns the typed [Contact](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md) models verbatim from the
-client; resources never call the client directly.
+resource (M4). Returns the **intent-shaped** [SurveyContact](#surveycontact)
+projection (name, publicKey, role, lastHeardMs), not the raw meshcore-ts
+[Contact](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md), so the resource's public JSON shape is owned here and a
+library `Contact` reshape can't silently change it. Shares the single
+`toSurveyContact` mapping with [surveyMesh](#surveymesh). Resources never call the
+client directly.
 
 ###### Returns
 
-`Promise`\<[`Contact`](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md)[]\>
+`Promise`\<[`SurveyContact`](#surveycontact)[]\>
 
 ##### deleteChannel()
 
@@ -1683,7 +1687,12 @@ The text transmitted.
 
 ### SurveyContact
 
-One contact in a [MeshSurvey](#meshsurvey) roster.
+One contact in a [MeshSurvey](#meshsurvey) roster — also the element shape of the
+`meshcore://contacts` resource. This is the **intent projection** of a
+meshcore-ts [Contact](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md): only what an agent needs to identify and reason
+about a peer (name, key, role, recency), never the library's raw internals
+(flags, out-paths, hop counts). It is the boundary that keeps a meshcore-ts
+`Contact` reshape from silently changing either contract.
 
 #### Properties
 

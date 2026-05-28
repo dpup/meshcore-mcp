@@ -19,7 +19,7 @@
  * presentation-derived fields (battery `volts`/`percent`); see `format.ts`.
  */
 
-import type { AdvType } from "@dpup/meshcore-ts";
+import type { AdvType, Contact } from "@dpup/meshcore-ts";
 
 /**
  * A consolidated health snapshot for one node — the connected **home** node, or
@@ -130,7 +130,14 @@ export interface NodeHealth {
   degraded?: string[];
 }
 
-/** One contact in a {@link MeshSurvey} roster. */
+/**
+ * One contact in a {@link MeshSurvey} roster — also the element shape of the
+ * `meshcore://contacts` resource. This is the **intent projection** of a
+ * meshcore-ts {@link Contact}: only what an agent needs to identify and reason
+ * about a peer (name, key, role, recency), never the library's raw internals
+ * (flags, out-paths, hop counts). It is the boundary that keeps a meshcore-ts
+ * `Contact` reshape from silently changing either contract.
+ */
 export interface SurveyContact {
   /** Advertised display name. */
   name: string;
@@ -140,6 +147,22 @@ export interface SurveyContact {
   role: AdvType;
   /** When this contact was last heard (advert), as injected-clock ms. */
   lastHeardMs: number;
+}
+
+/**
+ * Project a raw meshcore-ts {@link Contact} into the intent-shaped
+ * {@link SurveyContact}. The **single** mapping shared by `surveyMesh` and
+ * `contacts()` so the two reads can never drift, and the only place the raw
+ * `Contact` field names are read — keeping every raw internal (flags, out-path,
+ * hop count) off both public contracts.
+ */
+export function toSurveyContact(c: Contact): SurveyContact {
+  return {
+    name: c.advName,
+    publicKey: c.publicKey,
+    role: c.type,
+    lastHeardMs: c.lastAdvert.getTime(),
+  };
 }
 
 /**

@@ -149,17 +149,33 @@ describe("resources through a real MCP Client over a sim-backed server", () => {
       expect(typeof c.lastHeardMs).toBe("number");
     }
 
+    // The contacts resource emits the intent-shaped `SurveyContact` projection
+    // (name/publicKey/role/lastHeardMs) — NOT the raw meshcore-ts `Contact`. We
+    // type it loosely (as a record bag) so the negative assertions below can
+    // check for raw-only fields the projected shape must never carry.
     const { contacts, count } = readJson<{
-      contacts: Array<{ advName: string; publicKey: string; lastAdvert: string }>;
+      contacts: Array<Record<string, unknown>>;
       count: number;
     }>(await h.client.readResource({ uri: CONTACTS_URI }));
     expect(count).toBe(contacts.length);
-    const contactNames = contacts.map((c) => c.advName).sort();
+    const contactNames = contacts.map((c) => c["name"]).sort();
     expect(contactNames).toEqual(["Fern", "Rocky"]);
     for (const c of contacts) {
-      expect(c.publicKey).toMatch(/^[0-9a-f]{64}$/);
-      // Date fields serialize to ISO strings through JSON.
-      expect(typeof c.lastAdvert).toBe("string");
+      // The intent fields are present and shaped as expected.
+      expect(c["publicKey"]).toMatch(/^[0-9a-f]{64}$/);
+      expect(typeof c["name"]).toBe("string");
+      expect(typeof c["role"]).toBe("number");
+      expect(typeof c["lastHeardMs"]).toBe("number");
+      // The projected element carries exactly the four intent fields, no more.
+      expect(Object.keys(c).sort()).toEqual(["lastHeardMs", "name", "publicKey", "role"]);
+      // It must NOT leak raw meshcore-ts `Contact` internals. This is the guard
+      // the boundary needs: a `Contact` reshape that re-exposed any of these
+      // through the resource would fail here. (`advName`/`lastAdvert` are the
+      // old raw field names; `outPath`/`outPathLen`/`flags`/`lastMod` are raw
+      // routing/bookkeeping internals.)
+      for (const raw of ["advName", "lastAdvert", "outPath", "outPathLen", "flags", "lastMod", "type"]) {
+        expect(c[raw]).toBeUndefined();
+      }
     }
 
     await h.cleanup();
