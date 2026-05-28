@@ -252,6 +252,29 @@ export function digestDeleteChannel(r: { index: number; name?: string }): string
 }
 
 // ---------------------------------------------------------------------------
+// trace_path
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `trace_path`. */
+export const tracePathOutputShape = {
+  completed: z.boolean().describe("true when the trace round-trip completed"),
+  hopCount: z.number().describe("number of repeaters on the traced path"),
+  hops: z
+    .array(z.object({ hash: z.string(), snr: z.number() }))
+    .describe("each hop's path hash (hex) and SNR in dB, in path order"),
+  lastSnr: z.number().describe("SNR of the final hop, in dB"),
+} as const;
+
+/** A one-line digest of a trace result. */
+export function digestTrace(r: { hopCount: number; hops: { hash: string; snr: number }[]; lastSnr: number }): string {
+  if (r.hopCount === 0 || r.hops.length === 0) {
+    return `trace completed — 0 hops (direct), last SNR ${r.lastSnr}dB`;
+  }
+  const path = r.hops.map((h) => `${h.hash}(${h.snr}dB)`).join(" → ");
+  return `trace completed — ${r.hopCount} hop(s): ${path}`;
+}
+
+// ---------------------------------------------------------------------------
 // admin
 // ---------------------------------------------------------------------------
 

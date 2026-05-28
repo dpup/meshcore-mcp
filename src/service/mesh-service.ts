@@ -36,9 +36,10 @@ import type {
   MeshCoreEvents,
   SelfInfo,
   Stats,
+  TraceData,
 } from "@dpup/meshcore-ts";
 
-import { MeshCoreError, TxtType } from "@dpup/meshcore-ts";
+import { fromHex, MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 
 import { randomBytes } from "node:crypto";
 
@@ -134,6 +135,60 @@ export interface AdminResult {
   preview?: string;
   /** The repeater's CLI reply text — present for a remote exec. */
   reply?: string;
+}
+
+/** One hop of a {@link TraceResult} — a repeater on the path, with its SNR. */
+export interface TraceHop {
+  /** The repeater's path hash (hex), as carried in the trace. */
+  hash: string;
+  /** Signal-to-noise ratio reported at this hop, in dB. */
+  snr: number;
+}
+
+/** The result of {@link MeshService.tracePath} — a completed route trace. */
+export interface TraceResult {
+  /** Always `true` here — a trace that doesn't complete rejects (timeout). */
+  completed: boolean;
+  /** Number of hops (repeaters) on the traced path. */
+  hopCount: number;
+  /** Per-hop hash + SNR, in path order. */
+  hops: TraceHop[];
+  /** SNR of the final hop, in dB. */
+  lastSnr: number;
+}
+
+/**
+ * Parse a trace `path` argument into raw hop bytes. Accepts the conventional
+ * comma-separated hex bytes (`"23,5f,3a"`) or a contiguous hex string
+ * (`"235f3a"`). Each hop is a 1-byte repeater path hash (the default size).
+ */
+function parseTracePath(path: string): Uint8Array {
+  const cleaned = path.trim();
+  if (cleaned === "") throw new MeshCoreError("empty trace path");
+  if (cleaned.includes(",")) {
+    return new Uint8Array(
+      cleaned.split(",").map((part) => {
+        const h = part.trim();
+        if (!/^[0-9a-fA-F]{1,2}$/.test(h)) {
+          throw new MeshCoreError(`invalid trace hop "${h}" — expected a hex byte`);
+        }
+        return parseInt(h, 16);
+      }),
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(cleaned) || cleaned.length % 2 !== 0) {
+    throw new MeshCoreError(
+      `invalid trace path "${path}" — expected comma-separated hex bytes (e.g. "23,5f,3a") or a hex string`,
+    );
+  }
+  return fromHex(cleaned);
+}
+
+/** Map a meshcore-ts {@link TraceData} into the friendlier {@link TraceResult}. */
+function toTraceResult(trace: TraceData): TraceResult {
+  const hashes = trace.pathHashes.match(/.{2}/g) ?? [];
+  const hops: TraceHop[] = trace.pathSnrs.map((snr, i) => ({ hash: hashes[i] ?? "", snr }));
+  return { completed: true, hopCount: trace.pathLen, hops, lastSnr: trace.lastSnr };
 }
 
 /**
@@ -464,6 +519,34 @@ export class MeshService {
     const slot = index;
     await this.request(() => this.client.deleteChannel(slot));
     return name === undefined ? { index: slot } : { index: slot, name };
+  }
+
+  /**
+   * Trace a route through the mesh: send a trace packet along an explicit `path`
+   * of repeater hops (or a contact's known out-path) and report each hop's SNR
+   * when the round-trip completes — a precise propagation/coverage probe.
+   *
+   * Not retry-wrapped: a trace transmits a probe and carries its own device-side
+   * timeout, and a timeout here is a *result* ("the path didn't respond"), not a
+   * transient glitch to retry.
+   */
+  async tracePath(opts: { path?: string; node?: string }): Promise<TraceResult> {
+    let pathBytes: Uint8Array;
+    if (opts.path !== undefined && opts.path !== "") {
+      pathBytes = parseTracePath(opts.path);
+    } else if (opts.node !== undefined) {
+      const contact = await this.resolveContact(opts.node);
+      if (contact === undefined) throw new MeshServiceUnknownNodeError(opts.node);
+      if (contact.outPathLen <= 0 || contact.outPath === "") {
+        throw new MeshCoreError(
+          `"${contact.advName || opts.node}" has no known multi-hop path (a direct or unknown route) — provide an explicit \`path\``,
+        );
+      }
+      pathBytes = fromHex(contact.outPath);
+    } else {
+      throw new MeshCoreError('trace_path needs a `path` (e.g. "23,5f,3a") or a `node`');
+    }
+    return toTraceResult(await this.client.tracePath(pathBytes));
   }
 
   /**

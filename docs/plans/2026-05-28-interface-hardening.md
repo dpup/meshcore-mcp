@@ -131,8 +131,17 @@ precise count is **blocked on [meshcore-ts#4](https://github.com/dpup/meshcore-t
 (parse RF-log frames into packet hashes, so a received rebroadcast can be matched
 to the packet we sent). `probe_send` is deferred until that lands; then the ack
 half (already clean) + a verified repeat count make the whole workflow honest.
-(`tracePath` remains a possible *separate* `trace_path` tool for explicit path
-tracing, independent of this.)
+(`tracePath` shipped as a separate `trace_path` tool — precise route + per-hop
+SNR, independent of the repeat-attribution blocker.)
+
+## trace_path (shipped)
+
+A standalone `trace_path(path? | node?)` tool: send a trace packet along an
+explicit hop path (`"23,5f,3a"`) or a contact's known out-path, and report each
+repeater hop's SNR — a precise propagation/coverage probe. Not retry-wrapped (it
+transmits a probe and carries its own device timeout; a timeout is a *result*).
+Verified: path-byte encoding + hop/SNR mapping (sim + unit-via-spy), the error
+paths, and a graceful live timeout against the isolated node.
 
 ## Proposed sequence
 

@@ -431,6 +431,32 @@ its last-heard time, role, and public key. Backs `survey_mesh`.
 
 `Promise`\<[`MeshSurvey`](#meshsurvey)\>
 
+##### tracePath()
+
+```ts
+tracePath(opts): Promise<TraceResult>;
+```
+
+Trace a route through the mesh: send a trace packet along an explicit `path`
+of repeater hops (or a contact's known out-path) and report each hop's SNR
+when the round-trip completes — a precise propagation/coverage probe.
+
+Not retry-wrapped: a trace transmits a probe and carries its own device-side
+timeout, and a timeout here is a *result* ("the path didn't respond"), not a
+transient glitch to retry.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `opts` | \{ `node?`: `string`; `path?`: `string`; \} |
+| `opts.node?` | `string` |
+| `opts.path?` | `string` |
+
+###### Returns
+
+`Promise`\<`TraceResult`\>
+
 ***
 
 ### MeshServiceUnknownNodeError
@@ -2384,6 +2410,33 @@ function registerSurveyMesh(server, service): void;
 ```
 
 Register the `survey_mesh` read tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerTracePath()
+
+```ts
+function registerTracePath(server, service): void;
+```
+
+`trace_path` — trace a route through the mesh and report each hop's SNR. Send
+a trace packet along an explicit `path` of repeater hops, or along a contact's
+known out-path (`node`), and get back the hops + per-hop signal — a precise
+propagation/coverage probe ("how many repeaters relay to X, and how strong").
+
+A trace transmits a probe; it's a diagnostic action, not a read. A path that
+doesn't respond surfaces as an actionable timeout, not a hang.
 
 #### Parameters
 

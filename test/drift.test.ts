@@ -80,6 +80,7 @@ const CLIENT_METHODS = [
   "login",
   "getStatus",
   "getTelemetry",
+  "tracePath",
   // transmit (sendMessage) + remote CliData (runAdminRemote)
   "sendTextMessage",
   "sendChannelTextMessage",

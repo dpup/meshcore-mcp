@@ -16,6 +16,7 @@ import { registerDeleteChannel } from "./tools/delete-channel.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerSetChannel } from "./tools/set-channel.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
+import { registerTracePath } from "./tools/trace-path.js";
 import { VERSION } from "./version.js";
 
 /**
@@ -74,6 +75,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerSendMessage(server, options.service);
     registerSetChannel(server, options.service);
     registerDeleteChannel(server, options.service);
+    registerTracePath(server, options.service);
     registerAdmin(server, options.service);
 
     registerNodes(server, options.service);
