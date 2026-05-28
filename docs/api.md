@@ -2160,6 +2160,14 @@ Render an elapsed millisecond span as a coarse, human "ago" phrase
 (`just now`, `5m ago`, `2h ago`, `3d ago`). Coarse on purpose — a precise
 timestamp is noise in an error line (PRD §4).
 
+A small negative elapsed means the node's RTC runs *ahead* of ours — it was
+heard ~now, not "unknown" (common: MeshCore RTCs skew minutes/hours forward).
+A wildly-off value (far future, or an epoch-0 timestamp → decades) is bogus.
+
+The promotion ladder *rounds* at each boundary (so 90s → "2m ago", 36h →
+"2d ago"); contrast `formatDuration`, which *truncates* into fixed d/h/m/s
+buckets. Both lean on the same `splitDhms` unit constants.
+
 #### Parameters
 
 | Parameter | Type |

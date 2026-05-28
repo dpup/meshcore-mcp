@@ -80,5 +80,10 @@ export { registerHelp, HELP_URI } from "./resources/help.js";
 export { registerPrompts } from "./prompts/index.js";
 
 // The actionable tool-error helper.
-export { toolError, formatRelative } from "./errors.js";
+export { toolError } from "./errors.js";
 export type { ToolErrorResult, ErrorContext } from "./errors.js";
+
+// Time formatting (coarse "ago" / duration phrasing) — formatRelative stays on
+// the public surface (kept here for the unchanged `import { formatRelative }
+// from "../src/index.js"` in tests); its definition now lives in time.ts.
+export { formatRelative } from "./time.js";

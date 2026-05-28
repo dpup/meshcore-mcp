@@ -19,6 +19,7 @@ import {
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import type { Clock } from "./clock.js";
+import { formatRelative } from "./time.js";
 
 /**
  * The shape of an MCP tool error result (a `CallToolResult` with `isError`).
@@ -106,27 +107,4 @@ export function resourceReadError(
   const text = formatted.content[0]?.text ?? "device error";
   // eslint-disable-next-line @typescript-eslint/no-throw-literal
   throw new McpError(ErrorCode.InternalError, `${uri}: ${text}`);
-}
-
-/**
- * Render an elapsed millisecond span as a coarse, human "ago" phrase
- * (`just now`, `5m ago`, `2h ago`, `3d ago`). Coarse on purpose — a precise
- * timestamp is noise in an error line (PRD §4).
- */
-export function formatRelative(elapsedMs: number): string {
-  if (!Number.isFinite(elapsedMs)) return "unknown";
-  const DAY = 86_400_000;
-  // A small negative elapsed means the node's RTC runs *ahead* of ours — it was
-  // heard ~now, not "unknown" (common: MeshCore RTCs skew minutes/hours forward).
-  // A wildly-off value (far future, or an epoch-0 timestamp → decades) is bogus.
-  if (elapsedMs < 0) return elapsedMs > -2 * DAY ? "just now" : "unknown";
-  if (elapsedMs > 3650 * DAY) return "unknown";
-  const secs = Math.floor(elapsedMs / 1000);
-  if (secs < 45) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
 }

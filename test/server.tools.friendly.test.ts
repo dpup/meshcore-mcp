@@ -5,9 +5,11 @@
 import { channel, contact, defineWorld, node, scenario, traffic } from "@dpup/meshcore-sim";
 import { describe, expect, it } from "vitest";
 
-import { MeshCoreTimeoutError } from "@dpup/meshcore-ts";
+import { AdvType, MeshCoreTimeoutError } from "@dpup/meshcore-ts";
 
 import { formatRelative, toolError } from "../src/index.js";
+import { digestMeshSurvey } from "../src/format.js";
+import type { MeshSurvey } from "../src/index.js";
 import { resolveSince } from "../src/tools/get-recent-traffic.js";
 import { makeSimServer } from "./helpers/sim-server.js";
 
@@ -41,6 +43,34 @@ describe("survey_mesh summary line (H13)", () => {
     expect(text).toMatch(/3 contact\(s\) —/); // summary header, not a bare "3 contact(s):"
     expect(text).toContain("repeaters");
     await h.cleanup();
+  });
+
+  it("does NOT count a forward-skewed (future) contact as 'heard in the last hour'", () => {
+    const nowMs = 10_000_000_000;
+    const survey: MeshSurvey = {
+      home: { name: "Base", publicKey: "aa".repeat(32), role: AdvType.Chat },
+      contacts: [
+        // ~12h in the future: a badly-skewed RTC. Outside the symmetric ~1h
+        // recent window, so it must NOT inflate the "heard in the last hour"
+        // count — but per-row it still reads "just now" (formatRelative's
+        // separate 2-day forward-skew tolerance is unchanged).
+        { name: "Skewy", publicKey: "bb".repeat(32), role: AdvType.Chat, lastHeardMs: nowMs + 12 * 3_600_000 },
+      ],
+    };
+    const text = digestMeshSurvey(survey, nowMs);
+    expect(text).toContain("0 heard in the last hour");
+    expect(text).toMatch(/Skewy .* — last heard just now/);
+  });
+
+  it("counts a contact heard within the last hour", () => {
+    const nowMs = 10_000_000_000;
+    const survey: MeshSurvey = {
+      home: { name: "Base", publicKey: "aa".repeat(32), role: AdvType.Chat },
+      contacts: [
+        { name: "Fresh", publicKey: "cc".repeat(32), role: AdvType.Chat, lastHeardMs: nowMs - 10 * 60_000 },
+      ],
+    };
+    expect(digestMeshSurvey(survey, nowMs)).toContain("1 heard in the last hour");
   });
 });
 

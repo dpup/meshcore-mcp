@@ -26,7 +26,7 @@
 
 import { z } from "zod";
 
-import { formatRelative as relative } from "./errors.js";
+import { formatDuration, formatRelative as relative, HOUR_MS } from "./time.js";
 import type { MeshSurvey, NodeHealth } from "./service/health.js";
 import type { AdminResult, SendMessageResult } from "./service/mesh-service.js";
 import type { TrafficEvent } from "./service/traffic-buffer.js";
@@ -225,11 +225,15 @@ export function digestMeshSurvey(s: MeshSurvey, nowMs: number): string {
     lines.push("No contacts.");
     return lines.join("\n");
   }
-  // A one-line overview so a large roster is graspable at a glance.
-  const HOUR = 3_600_000;
+  // A one-line overview so a large roster is graspable at a glance. "Recent" is
+  // a SYMMETRIC ~1h window: heard within the last hour, tolerating up to ~1h of
+  // forward clock skew — so a contact hours into the future (a badly-skewed RTC)
+  // is NOT miscounted as recent. This is independent of formatRelative's coarser
+  // 2-day "just now vs unknown" skew threshold (a contact ~12h ahead still
+  // renders per-row as "just now", it just doesn't inflate this count).
   const recent = s.contacts.filter((c) => {
     const e = nowMs - c.lastHeardMs;
-    return e < HOUR && e > -2 * 86_400_000; // heard within the last hour (skew-tolerant)
+    return e < HOUR_MS && e > -HOUR_MS;
   }).length;
   const repeaters = s.contacts.filter((c) => roleName(c.role) === "repeater").length;
   const rooms = s.contacts.filter((c) => roleName(c.role) === "room").length;
@@ -445,18 +449,4 @@ function roleName(role: number): string {
 /** First 12 hex chars of a key, for compact display. */
 function shortKey(key: string): string {
   return key.length > 12 ? `${key.slice(0, 12)}…` : key;
-}
-
-/** Coarse "ago" phrase for an elapsed-ms span. */
-/** Human duration from a seconds count (`1d 2h`, `3h 5m`, `45m`, `12s`). */
-function formatDuration(totalSecs: number): string {
-  if (!Number.isFinite(totalSecs) || totalSecs < 0) return "unknown";
-  const d = Math.floor(totalSecs / 86_400);
-  const h = Math.floor((totalSecs % 86_400) / 3_600);
-  const m = Math.floor((totalSecs % 3_600) / 60);
-  const s = Math.floor(totalSecs % 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m`;
-  return `${s}s`;
 }
