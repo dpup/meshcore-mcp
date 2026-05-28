@@ -5,8 +5,18 @@
  * distinction and the remote login (PRD §4), so a tool — and ultimately an agent
  * — sees one coherent snapshot regardless of how the data was assembled.
  *
- * Both shapes are reused verbatim by the M2 tool output schemas (`format.ts`),
- * so every field here is part of the public contract.
+ * These types are the service's **intent** surface, and they hold only what the
+ * device reports — the line is *lossless vs. interpretive*. Lossless unit
+ * normalization (the radio kHz→MHz / Hz→kHz conversions) stays here: it shapes a
+ * device wire quirk into the canonical surface units this contract documents.
+ * Interpretive, lossy derivation does **not** belong here — e.g. battery carries
+ * raw millivolts only; volts and the 1S Li-ion charge **%** are a chemistry
+ * estimate and are added by the presentation layer (`format.ts`), so a second
+ * `NodeHealth` consumer (meshcore-elmer) never inherits the device core's
+ * battery-chemistry opinion.
+ *
+ * The output schemas in `format.ts` mirror these shapes but may add
+ * presentation-derived fields (battery `volts`/`percent`); see `format.ts`.
  */
 
 import type { AdvType } from "@dpup/meshcore-ts";
@@ -45,17 +55,14 @@ export interface NodeHealth {
    */
   lastHeardMs?: number;
 
-  /** Battery, where reported (home: `getBatteryVoltage`; remote: stats). */
+  /**
+   * Battery, where reported (home: `getBatteryVoltage`; remote: stats) — **raw
+   * millivolts only**. Derived `volts` and an approximate charge `%` are a
+   * chemistry interpretation (lossy), so they are *not* carried here; the
+   * presentation layer (`format.ts`) adds them on the wire.
+   */
   battery?: {
     milliVolts: number;
-    /** `milliVolts / 1000`, where the source reported millivolts. */
-    volts?: number;
-    /**
-     * Approximate charge %, present only for a plausible 1S Li-ion reading.
-     * A rough linear estimate (≈3.3 V empty … 4.2 V full) — friendly, not exact;
-     * the discharge curve is nonlinear and chemistry varies.
-     */
-    percent?: number;
   };
 
   /** Radio configuration — home node only (read from `SelfInfo`). */

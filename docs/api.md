@@ -1350,31 +1350,16 @@ and which optional fields are populated.
 optional battery?: object;
 ```
 
-Battery, where reported (home: `getBatteryVoltage`; remote: stats).
+Battery, where reported (home: `getBatteryVoltage`; remote: stats) — **raw
+millivolts only**. Derived `volts` and an approximate charge `%` are a
+chemistry interpretation (lossy), so they are *not* carried here; the
+presentation layer (`format.ts`) adds them on the wire.
 
 ###### milliVolts
 
 ```ts
 milliVolts: number;
 ```
-
-###### percent?
-
-```ts
-optional percent?: number;
-```
-
-Approximate charge %, present only for a plausible 1S Li-ion reading.
-A rough linear estimate (≈3.3 V empty … 4.2 V full) — friendly, not exact;
-the discharge curve is nonlinear and chemistry varies.
-
-###### volts?
-
-```ts
-optional volts?: number;
-```
-
-`milliVolts / 1000`, where the source reported millivolts.
 
 ##### degraded?
 

@@ -1,6 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { resourceReadError } from "../errors.js";
+import { nodeHealthOutput } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /**
@@ -35,7 +36,10 @@ export function registerNode(server: McpServer, service: MeshService): void {
       const nodeArg = Array.isArray(raw) ? raw[0] : raw;
       const resolved = typeof nodeArg === "string" ? decodeURIComponent(nodeArg) : undefined;
       try {
-        const health = await service.nodeHealth(resolved);
+        // The service returns raw intent (battery in millivolts only). Project
+        // through the presentation layer so the resource emits the same battery
+        // `volts`/`percent` (and overall shape) as the `get_node_health` tool.
+        const health = nodeHealthOutput(await service.nodeHealth(resolved));
         return {
           contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(health, null, 2) }],
         };

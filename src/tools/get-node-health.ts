@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { toolError } from "../errors.js";
-import { digestNodeHealth, nodeHealthOutputShape } from "../format.js";
+import { digestNodeHealth, nodeHealthOutput, nodeHealthOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /** Register the `get_node_health` read tool on `server`, backed by `service`. */
@@ -44,12 +44,16 @@ export function registerGetNodeHealth(server: McpServer, service: MeshService): 
     async ({ node }) => {
       try {
         const health = await service.nodeHealth(node);
+        // The service returns raw intent (battery in millivolts only). The
+        // presentation projection adds the interpretive battery `volts`/`percent`
+        // the wire schema carries; the digest renders the same projected data.
+        const output = nodeHealthOutput(health);
         return {
-          content: [{ type: "text", text: digestNodeHealth(health) }],
+          content: [{ type: "text", text: digestNodeHealth(output) }],
           // The SDK types `structuredContent` as a `Record<string, unknown>`
           // and validates it against `outputSchema` at runtime; widen the typed
           // result to that record shape (the schema is the real guarantee).
-          structuredContent: health as unknown as Record<string, unknown>,
+          structuredContent: output as unknown as Record<string, unknown>,
         };
       } catch (error) {
         return toolError(error, {

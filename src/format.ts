@@ -12,6 +12,16 @@
  * `TrafficEvent`) field-for-field; the SDK validates the handler's
  * `structuredContent` against them, so a drift between the two surfaces as a
  * test failure rather than a silent mismatch.
+ *
+ * This module is the **presentation layer**, and every interpretive / lossy
+ * transform lives here — relative times, durations, role names, the survey
+ * summary, and (see {@link batteryPresentation}) the 1S Li-ion battery charge
+ * **%**. The dependency points format → service, never the reverse: the service
+ * keeps raw, lossless intent (e.g. battery raw millivolts) so a second
+ * `NodeHealth` consumer never inherits a chemistry opinion. Where an output
+ * schema carries more than the intent type (battery `volts`/`percent`), a small
+ * per-tool projection ({@link nodeHealthOutput}) adds those presentation fields;
+ * other tools pass the service result through unchanged.
  */
 
 import { z } from "zod";
@@ -33,6 +43,9 @@ export const nodeHealthOutputShape = {
   role: z.number().optional(),
   reachable: z.boolean(),
   lastHeardMs: z.number().optional(),
+  // `volts`/`percent` are presentation-added: the service's `NodeHealth`
+  // carries raw `milliVolts` only; `nodeHealthOutput` derives these (see
+  // `batteryPresentation`). They are part of the wire contract, not the intent.
   battery: z
     .object({
       milliVolts: z.number(),
@@ -77,16 +90,61 @@ export const nodeHealthOutputShape = {
     ),
 } as const;
 
-/** A high-signal one-paragraph digest of a {@link NodeHealth} snapshot. */
-export function digestNodeHealth(h: NodeHealth): string {
+/**
+ * Presentation-derived battery block: raw millivolts plus the interpretive,
+ * lossy fields the service deliberately does not carry. `volts` is
+ * `milliVolts / 1000`; `percent` is a rough linear 1S Li-ion charge estimate
+ * (≈3.3 V empty … 4.2 V full, clamped 0–100), present **only** for a plausible
+ * 2500–5000 mV reading — friendly, not exact; the discharge curve is nonlinear
+ * and chemistry varies, which is exactly why this lives in the presentation
+ * layer and not the device-facing service.
+ */
+export function batteryPresentation(milliVolts: number): {
+  milliVolts: number;
+  volts: number;
+  percent?: number;
+} {
+  const battery: { milliVolts: number; volts: number; percent?: number } = {
+    milliVolts,
+    volts: milliVolts / 1000,
+  };
+  if (milliVolts >= 2500 && milliVolts <= 5000) {
+    battery.percent = Math.max(0, Math.min(100, Math.round(((milliVolts - 3300) / 900) * 100)));
+  }
+  return battery;
+}
+
+/**
+ * The presentation projection of a {@link NodeHealth} snapshot — the raw service
+ * result with the interpretive battery fields (`volts`/`percent`) added. This is
+ * what `get_node_health` ships as `structuredContent` (it validates against
+ * {@link nodeHealthOutputShape}) and what {@link digestNodeHealth} renders, so
+ * the structured wire and its prose derive from the same projected data.
+ *
+ * node-health is the one read with an interpretive derivation, so it gets a
+ * per-tool projection; other tools pass the service result straight through.
+ */
+export type NodeHealthOutput = Omit<NodeHealth, "battery"> & {
+  battery?: { milliVolts: number; volts: number; percent?: number };
+};
+
+/** Project a raw {@link NodeHealth} into its presentation output shape. */
+export function nodeHealthOutput(raw: NodeHealth): NodeHealthOutput {
+  const { battery, ...rest } = raw;
+  return battery !== undefined
+    ? { ...rest, battery: batteryPresentation(battery.milliVolts) }
+    : { ...rest };
+}
+
+/** A high-signal one-paragraph digest of a {@link NodeHealthOutput} snapshot. */
+export function digestNodeHealth(h: NodeHealthOutput): string {
   const lines: string[] = [];
   const where = h.kind === "home" ? "home node" : "remote node";
   lines.push(`${h.node} (${where}) — reachable`);
 
   if (h.battery) {
-    const v = h.battery.volts ?? h.battery.milliVolts / 1000;
     const pct = h.battery.percent !== undefined ? ` (~${h.battery.percent}%)` : "";
-    lines.push(`battery ${v.toFixed(2)}V${pct}`);
+    lines.push(`battery ${h.battery.volts.toFixed(2)}V${pct}`);
   }
   if (h.radio) {
     lines.push(

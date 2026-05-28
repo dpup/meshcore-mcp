@@ -15,7 +15,7 @@ function world() {
     homeNodeId: "base",
     nodes: [
       node("base", { name: "Base" }),
-      node("rocky", { name: "Rocky Ridge", role: "repeater" }),
+      node("rocky", { name: "Rocky Ridge", role: "repeater", battery: 80 }),
       node("cedar", { name: "Cedar Creek" }),
     ],
     channels: [channel(0, "public")],
@@ -48,9 +48,21 @@ describe("completions + help (discoverable surface)", () => {
   it("reads one node's health via the meshcore://node/{node} resource", async () => {
     const h = await makeSimServer({ world: world() });
     const res = await h.client.readResource({ uri: "meshcore://node/Rocky%20Ridge" });
-    const body = JSON.parse((res.contents[0] as { text: string }).text) as { node?: string; kind?: string };
+    const body = JSON.parse((res.contents[0] as { text: string }).text) as {
+      node?: string;
+      kind?: string;
+      battery?: { milliVolts: number; volts?: number; percent?: number };
+    };
     expect(body.node).toBe("Rocky Ridge");
     expect(body.kind).toBe("remote");
+    // The resource must surface the presentation-projected battery (volts/percent),
+    // not the raw service shape (millivolts only). Battery 80% ⇒ 3960mV ⇒ ~73%
+    // (mirrors the friendly test); guards against the resource regressing to the
+    // raw `NodeHealth`.
+    expect(body.battery?.milliVolts).toBe(3960);
+    expect(body.battery?.volts).toBeCloseTo(3.96, 3);
+    expect(typeof body.battery?.percent).toBe("number");
+    expect(body.battery?.percent).toBe(73);
     await h.cleanup();
   });
 

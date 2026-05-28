@@ -210,19 +210,6 @@ function parseTracePath(path: string): Uint8Array {
   return fromHex(cleaned);
 }
 
-/**
- * Build the battery block, adding a rough charge % for a plausible 1S Li-ion
- * reading (≈3.3 V empty … 4.2 V full). A friendly estimate, not exact — the
- * discharge curve is nonlinear; implausible readings get no %.
- */
-function batteryInfo(milliVolts: number): NonNullable<NodeHealth["battery"]> {
-  const battery: NonNullable<NodeHealth["battery"]> = { milliVolts, volts: milliVolts / 1000 };
-  if (milliVolts >= 2500 && milliVolts <= 5000) {
-    battery.percent = Math.max(0, Math.min(100, Math.round(((milliVolts - 3300) / 900) * 100)));
-  }
-  return battery;
-}
-
 /** Map a meshcore-ts {@link TraceData} into the friendlier {@link TraceResult}. */
 function toTraceResult(trace: TraceData): TraceResult {
   const hashes = trace.pathHashes.match(/.{2}/g) ?? [];
@@ -1038,6 +1025,12 @@ export class MeshService {
    * reads: identity + radio config (`getSelfInfo`), battery, device time, and
    * the three stat groups. Stat reads are gathered together; a missing field
    * stays absent rather than synthesized.
+   *
+   * The boundary this method holds is *lossless vs. interpretive*: lossless unit
+   * normalization belongs here (the radio kHz→MHz / Hz→kHz conversions below
+   * shape a device wire quirk into the `NodeHealth` contract's canonical units),
+   * but lossy interpretation does not — battery carries raw millivolts only; its
+   * `volts`/charge-`%` chemistry estimate is derived up in `format.ts`.
    */
   private async homeHealth(self: SelfInfo): Promise<NodeHealth> {
     // Gather sub-results independently with bounded retry. A single sub-call
@@ -1105,7 +1098,9 @@ export class MeshService {
     };
     if (deviceTime !== undefined) result.deviceTimeMs = deviceTime.getTime();
     if (batteryMilliVolts !== undefined) {
-      result.battery = batteryInfo(batteryMilliVolts);
+      // Raw millivolts only — `volts`/`%` are a chemistry interpretation the
+      // presentation layer (`format.ts`) derives; the service stays lossless.
+      result.battery = { milliVolts: batteryMilliVolts };
     }
     if (uptimeSecs !== undefined) result.uptimeSecs = uptimeSecs;
     if (txQueueLen !== undefined) result.txQueueLen = txQueueLen;
@@ -1142,7 +1137,8 @@ export class MeshService {
       role: contact.type,
       reachable: true,
       lastHeardMs: contact.lastAdvert.getTime(),
-      battery: batteryInfo(status.batteryMilliVolts),
+      // Raw millivolts only — presentation (`format.ts`) derives volts/%.
+      battery: { milliVolts: status.batteryMilliVolts },
       uptimeSecs: status.totalUpTimeSecs,
       txQueueLen: status.currTxQueueLen,
       stats: {
