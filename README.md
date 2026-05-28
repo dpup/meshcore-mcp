@@ -101,7 +101,9 @@ hands it; a malformed or missing config exits non-zero with a legible message
 | `MESHCORE_PORT` | TCP port for `MESHCORE_HOST` (default `5000`). |
 | `MESHCORE_SERIAL_PATH` | USB serial device path (e.g. `/dev/ttyACM0`) — the serial alternative to `MESHCORE_HOST`. |
 | `MESHCORE_LOGIN_PASSWORD` | Default login/admin password for remote nodes (default `""` — the guest password). |
+| `MESHCORE_LOGIN_PASSWORD_FILE` | Read the default password from a file instead (its trailing newline is stripped). Set this **or** `MESHCORE_LOGIN_PASSWORD`, not both. |
 | `MESHCORE_NODE_PASSWORDS` | JSON object of per-node overrides: `{ "rocky-ridge": "secret" }` (keyed by node id or name). |
+| `MESHCORE_NODE_PASSWORDS_FILE` | Read that same JSON map from a file instead — keeps node secrets out of the environment and your MCP config (`chmod 600` it). Set this **or** `MESHCORE_NODE_PASSWORDS`, not both. |
 | `MESHCORE_REQUEST_TIMEOUT_MS` | Device request timeout, ms (default `10000`). |
 | `MESHCORE_TRAFFIC_CAPACITY` | Recent-traffic ring-buffer size (default the buffer's own default). |
 | `MESHCORE_ADMIN_REPLY_TIMEOUT_MS` | How long the remote-admin path waits for a CLI reply, ms (default `15000`). |

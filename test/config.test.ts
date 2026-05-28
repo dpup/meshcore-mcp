@@ -165,6 +165,78 @@ describe("loadConfig", () => {
     });
   });
 
+  describe("credentials from files (*_FILE)", () => {
+    // An in-memory FileReader injected as loadConfig's 3rd arg — no real fs.
+    const reader =
+      (files: Record<string, string>) =>
+      (p: string): string => {
+        if (!(p in files)) throw new Error(`ENOENT: no such file, open '${p}'`);
+        return files[p]!;
+      };
+
+    it("reads the node-password map from MESHCORE_NODE_PASSWORDS_FILE", () => {
+      const { credentials } = loadConfig(
+        {
+          MESHCORE_HOST: "node.local",
+          MESHCORE_LOGIN_PASSWORD: "default-pw",
+          MESHCORE_NODE_PASSWORDS_FILE: "/secrets/nodes.json",
+        },
+        [],
+        reader({ "/secrets/nodes.json": JSON.stringify({ "rocky-ridge": "rr-pw" }) }),
+      );
+      expect(credentials("rocky-ridge")).toBe("rr-pw"); // from the file
+      expect(credentials("other")).toBe("default-pw"); // default still applies
+    });
+
+    it("reads the default login password from MESHCORE_LOGIN_PASSWORD_FILE, stripping a trailing newline", () => {
+      const { credentials } = loadConfig(
+        { MESHCORE_HOST: "node.local", MESHCORE_LOGIN_PASSWORD_FILE: "/secrets/login" },
+        [],
+        reader({ "/secrets/login": "filesecret\n" }),
+      );
+      expect(credentials("anything")).toBe("filesecret");
+    });
+
+    it("rejects setting both the inline var and its *_FILE", () => {
+      expect(() =>
+        loadConfig(
+          {
+            MESHCORE_HOST: "node.local",
+            MESHCORE_NODE_PASSWORDS: "{}",
+            MESHCORE_NODE_PASSWORDS_FILE: "/secrets/nodes.json",
+          },
+          [],
+          reader({ "/secrets/nodes.json": "{}" }),
+        ),
+      ).toThrow(/not both/);
+    });
+
+    it("surfaces a file-read failure as an actionable ConfigError", () => {
+      try {
+        loadConfig(
+          { MESHCORE_HOST: "node.local", MESHCORE_NODE_PASSWORDS_FILE: "/nope.json" },
+          [],
+          reader({}),
+        );
+        expect.unreachable("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(ConfigError);
+        expect((err as ConfigError).message).toContain("MESHCORE_NODE_PASSWORDS_FILE");
+        expect((err as ConfigError).message).toContain("/nope.json");
+      }
+    });
+
+    it("rejects malformed JSON in a node-passwords file", () => {
+      expect(() =>
+        loadConfig(
+          { MESHCORE_HOST: "node.local", MESHCORE_NODE_PASSWORDS_FILE: "/secrets/nodes.json" },
+          [],
+          reader({ "/secrets/nodes.json": "{not json" }),
+        ),
+      ).toThrow(/valid JSON/);
+    });
+  });
+
   describe("tuning", () => {
     it("applies sensible defaults", () => {
       const config = loadConfig({ MESHCORE_HOST: "node.local" }, []);

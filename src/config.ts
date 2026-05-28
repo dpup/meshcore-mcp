@@ -15,14 +15,27 @@
  * - **tuning** → the client's `requestTimeoutMs`, the traffic buffer capacity,
  *   and the admin reply timeout.
  *
- * Nothing here reads time or touches the device — it is pure parsing, so the
- * unit tests call {@link loadConfig} with a fake `env`/`argv` and never touch
- * the real `process.env`.
+ * Nothing here reads time or touches the device. The only I/O is reading a
+ * `*_FILE` secret (e.g. `MESHCORE_NODE_PASSWORDS_FILE`) through an **injected**
+ * {@link FileReader} — so the unit tests call {@link loadConfig} with a fake
+ * `env`/`argv` and an in-memory reader, never the real `process.env` or disk.
  */
+
+import { readFileSync } from "node:fs";
 
 import { z } from "zod";
 
 import type { CredentialsProvider } from "./service/mesh-service.js";
+
+/**
+ * Reads a file's UTF-8 contents by path. Injected into {@link loadConfig} so its
+ * `*_FILE` secret handling stays unit-testable without touching the real
+ * filesystem (tests pass an in-memory reader; production uses the default below).
+ */
+export type FileReader = (path: string) => string;
+
+/** The default {@link FileReader}: a synchronous UTF-8 read from disk. */
+const defaultFileReader: FileReader = (path) => readFileSync(path, "utf8");
 
 /** Default TCP port for `companion_radio_wifi` (matches meshcore's WiFi companion). */
 const DEFAULT_PORT = 5000;
@@ -177,6 +190,40 @@ function makeCredentials(
 }
 
 /**
+ * Resolve a value that may be supplied **inline** (`KEY`) or **from a file**
+ * (`KEY_FILE`), never both — returns the file's contents, else the inline value,
+ * else `undefined`. Lets a secret (node passwords, the login password) live in a
+ * file with restricted perms instead of the process environment / the launcher's
+ * MCP config. Throws a {@link ConfigError} naming the vars if both are set, or if
+ * the file cannot be read.
+ */
+function resolveEnvOrFile(
+  env: NodeJS.ProcessEnv,
+  readFile: FileReader,
+  key: string,
+): string | undefined {
+  const inline = readVar(env, key);
+  const path = readVar(env, `${key}_FILE`);
+  if (inline !== undefined && path !== undefined) {
+    throw new ConfigError(
+      `Set ${key} or ${key}_FILE, not both — they configure the same value.`,
+    );
+  }
+  if (path === undefined) return inline;
+  try {
+    return readFile(path);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new ConfigError(`${key}_FILE: could not read "${path}" (${detail}).`);
+  }
+}
+
+/** Strip trailing line terminators — a password file's editor-added newline. */
+function stripTrailingNewlines(s: string): string {
+  return s.replace(/[\r\n]+$/, "");
+}
+
+/**
  * Read and validate the server configuration from `env` (default
  * `process.env`) and `argv` (default the process args after `node script`).
  *
@@ -190,7 +237,11 @@ function makeCredentials(
  *
  * **Credentials (optional):** `MESHCORE_LOGIN_PASSWORD` (default `""`, guest)
  * is the default login/admin password; `MESHCORE_NODE_PASSWORDS` (JSON object)
- * supplies per-node overrides.
+ * supplies per-node overrides. Either may instead be read from a file via a
+ * `*_FILE` variant (`MESHCORE_LOGIN_PASSWORD_FILE` /
+ * `MESHCORE_NODE_PASSWORDS_FILE`) — the same content, kept off the environment;
+ * set the inline var **or** its `*_FILE`, never both. A password file's trailing
+ * newline is stripped.
  *
  * **Tuning (optional):** `MESHCORE_REQUEST_TIMEOUT_MS`,
  * `MESHCORE_TRAFFIC_CAPACITY`, `MESHCORE_ADMIN_REPLY_TIMEOUT_MS` — positive
@@ -202,6 +253,7 @@ function makeCredentials(
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   argv: readonly string[] = process.argv.slice(2),
+  readFile: FileReader = defaultFileReader,
 ): Config {
   const flags = parseFlags(argv);
 
@@ -258,8 +310,12 @@ export function loadConfig(
     transport = { kind: "serial", path: serialPath };
   }
 
-  const defaultPassword = readVar(env, "MESHCORE_LOGIN_PASSWORD") ?? "";
-  const perNode = parseNodePasswords(readVar(env, "MESHCORE_NODE_PASSWORDS"));
+  // Credentials may be inline or from a `*_FILE` secret on disk, never both.
+  const loginRaw = resolveEnvOrFile(env, readFile, "MESHCORE_LOGIN_PASSWORD");
+  const defaultPassword = loginRaw === undefined ? "" : stripTrailingNewlines(loginRaw);
+  const perNode = parseNodePasswords(
+    resolveEnvOrFile(env, readFile, "MESHCORE_NODE_PASSWORDS"),
+  );
   const credentials = makeCredentials(defaultPassword, perNode);
 
   const requestTimeoutMs = parseNumericVar(

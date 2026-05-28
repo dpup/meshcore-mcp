@@ -2080,7 +2080,10 @@ share only the day/hour/minute/second unit constants.
 ### loadConfig()
 
 ```ts
-function loadConfig(env?, argv?): Config;
+function loadConfig(
+   env?, 
+   argv?, 
+   readFile?): Config;
 ```
 
 Read and validate the server configuration from `env` (default
@@ -2096,7 +2099,11 @@ flags override the TCP env; `--serial` overrides the serial env.
 
 **Credentials (optional):** `MESHCORE_LOGIN_PASSWORD` (default `""`, guest)
 is the default login/admin password; `MESHCORE_NODE_PASSWORDS` (JSON object)
-supplies per-node overrides.
+supplies per-node overrides. Either may instead be read from a file via a
+`*_FILE` variant (`MESHCORE_LOGIN_PASSWORD_FILE` /
+`MESHCORE_NODE_PASSWORDS_FILE`) — the same content, kept off the environment;
+set the inline var **or** its `*_FILE`, never both. A password file's trailing
+newline is stripped.
 
 **Tuning (optional):** `MESHCORE_REQUEST_TIMEOUT_MS`,
 `MESHCORE_TRAFFIC_CAPACITY`, `MESHCORE_ADMIN_REPLY_TIMEOUT_MS` — positive
@@ -2108,6 +2115,7 @@ integers, with sensible defaults.
 | ------ | ------ | ------ |
 | `env` | `ProcessEnv` | `process.env` |
 | `argv` | readonly `string`[] | `...` |
+| `readFile` | `FileReader` | `defaultFileReader` |
 
 #### Returns
 
