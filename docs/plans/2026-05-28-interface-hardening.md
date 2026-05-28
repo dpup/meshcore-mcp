@@ -74,6 +74,22 @@ live stream and likely contributes to the timeouts. It's an upstream
 
 ---
 
+## Live re-verification (2026-05-28)
+
+The whole backlog was re-exercised against the real node (SIERRA Elmer) through
+the production server and all fixes held:
+
+- **H1** — 3/3 `get_node_health` clean (stderr showed retries absorbing transient
+  timeouts that previously failed ~1/3 of calls).
+- **H3** — `admin reboot` → `device disconnected; reconnect attempt 1… → device
+  reconnected`; `get_node_health` working again within ~9s on the same session,
+  no client intervention. **Auto-reconnect verified on hardware.**
+- **H4** — a send appeared in `get_recent_traffic` as `direction:"out"`.
+- **H6** — `#nope` → `no channel matches "#nope". Known channels: #Public, …`.
+- **H7** — `set_channel` + `delete_channel` add/remove cleanly (left the node tidy).
+- **H8** — unknown admin command → the friendly valid-command list, no Zod JSON.
+- `trace_path` — an unresponsive path returns a graceful actionable timeout.
+
 ## Issue backlog
 
 | ID | Issue | Severity | Theme | Status |
