@@ -125,16 +125,14 @@ matching `sendConfirmed` (ack + RTT) and count `logRxData`/`rawData` frames,
 returning `{ route, ack: { received, roundTripMs? }, rfFramesObserved, windowMs }`.
 A clean "collapse the mechanical sequence" tool (PRD §4); the agent interprets.
 
-**The fork (needs a call) — how to define "repeats":**
-1. **Coarse (ships now):** count `logRxData`/`rawData` frames in the window,
-   labeled honestly as "RF frames heard" (not verified repeats of your message).
-2. **Precise:** parse `logRxData.raw` to match our packet's hash → a true repeat
-   count. Needs packet parsing meshcore-ts doesn't expose (deeper; likely
-   upstream, akin to H5).
-3. **`tracePath` instead:** meshcore-ts's `tracePath` returns the path hops +
-   per-hop SNR — a precise "how many repeaters relay to X." A different probe
-   (explicit trace, not "monitor my message"), but it gives a real repeat/hop
-   count today. Could be its own `trace_path` tool.
+**Decision (2026-05-28): held for *precise* repeats — not shipping a coarse
+count.** A coarse "RF frames heard" number would mislead more than help. The
+precise count is **blocked on [meshcore-ts#4](https://github.com/dpup/meshcore-ts/issues/4)**
+(parse RF-log frames into packet hashes, so a received rebroadcast can be matched
+to the packet we sent). `probe_send` is deferred until that lands; then the ack
+half (already clean) + a verified repeat count make the whole workflow honest.
+(`tracePath` remains a possible *separate* `trace_path` tool for explicit path
+tracing, independent of this.)
 
 ## Proposed sequence
 
