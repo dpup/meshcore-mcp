@@ -2,12 +2,19 @@
  * `get_recent_traffic` — drain the recent-traffic buffer, optionally windowed
  * by a `since` threshold (PRD §5.1).
  *
- * `since` accepts an ISO-8601 datetime **or** an epoch-ms number, resolved to a
- * millisecond threshold and passed to {@link MeshService.recentTraffic}. The
- * buffer stamps events with the **injected clock** (`SimClock` in tests,
- * `SystemClock` in prod), so in sim tests `since` is a virtual-ms number (e.g.
- * `5000` for "since +5s"), not a wall-clock instant. Any "now"-relative logic
- * uses the injected clock for determinism — never `Date.now()`.
+ * `since` accepts a **relative duration** (`"10m"`, `"1h"`), an ISO-8601
+ * datetime, or an epoch-ms number, resolved to a millisecond threshold and
+ * passed to {@link MeshService.recentTraffic}.
+ *
+ * **Prefer the relative form.** The buffer stamps events with the **injected
+ * clock**, and a relative `since` is resolved against that same clock
+ * (`now - X`), so it is correct under *any* clock — the portable form. The
+ * absolute forms (ISO / epoch-ms) are wall-clock instants; they line up with
+ * event stamps only when the clock *is* wall-clock (production `SystemClock`,
+ * or the demo's `RealtimeClock`) — not under the virtual `SimClock` used in
+ * tests, where an absolute `since` would be billions of ms past every event and
+ * window out everything. "now"-relative logic uses the injected clock for
+ * determinism — never `Date.now()`.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -57,14 +64,15 @@ export function registerGetRecentTraffic(server: McpServer, service: MeshService
       description:
         "Recent live mesh traffic from the rolling buffer, oldest→newest, each " +
         "tagged with structural provenance (kind + decrypt-verified). Optional " +
-        '`since` windows it: a relative duration ("10m", "1h"), an ISO-8601 ' +
-        "datetime, or epoch-ms. Omit for all buffered traffic.",
+        '`since` windows it — prefer a relative duration ("10m", "1h", "30s"), ' +
+        "which is the portable form; an ISO-8601 datetime or epoch-ms also work " +
+        "but are wall-clock instants. Omit for all buffered traffic.",
       inputSchema: {
         since: z
           .union([z.string(), z.number()])
           .optional()
           .describe(
-            'only newer events — a relative duration ("10m", "1h"), an ISO-8601 datetime, or epoch-ms; omit for all buffered',
+            'only newer events — prefer a relative duration ("10m", "1h", "30s"), the portable form; an ISO-8601 datetime or epoch-ms also work but are wall-clock instants; omit for all buffered',
           ),
       },
       outputSchema: recentTrafficOutputShape,
