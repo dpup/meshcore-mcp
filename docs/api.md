@@ -789,10 +789,12 @@ compared against the injected-clock `at` stamp, never wall-clock time.
 
 ### AdminCommandDef
 
-One enumerated admin command. The `admin` tool validates its `command`
-argument against the registry's keys and derives annotations from `tier`;
-adding a command is one new [AdminCommandDef](#admincommanddef) entry (execution plan §9
-"Adding a command is one new entry").
+One enumerated admin command. [MeshService.runAdmin](#runadmin) validates the
+caller's `command` against the registry's keys (a bad name surfaces the
+friendly known-command list — H8) and surfaces the `tier`'s
+[annotationsForTier](#annotationsfortier) triple in the structured output; adding a command
+is one new [AdminCommandDef](#admincommanddef) entry (execution plan §9 "Adding a command
+is one new entry").
 
 #### Type Parameters
 
@@ -924,10 +926,25 @@ the three outcomes:
 - **remote exec** — `dryRun: false`, dispatched via the
   `login → CliData → reply` handshake (carries the repeater's `reply` text).
 
-Every variant carries the `command` and its `tier` so the tool can surface
-the per-command risk in its structured output.
+Every variant carries the `command`, its `tier`, and the deterministic
+`{ readOnlyHint, destructiveHint, idempotentHint }` triple that tier maps to
+(via [annotationsForTier](#annotationsfortier)), so an agent receives the per-command risk in
+the structured output. (The MCP *tool-level* annotations stay conservative and
+static — `admin` is one multiplexed tool, so a single invocation can't carry
+per-command annotations; this field is where the per-command mapping is
+surfaced instead. AGENTS.md don't-regress #4.)
 
 #### Properties
+
+##### annotations
+
+```ts
+annotations: TierAnnotations;
+```
+
+The deterministic annotation triple the [tier](#tier-1) maps to
+([annotationsForTier](#annotationsfortier)) — the per-command risk hints, surfaced here
+because the tool-level annotations can't vary per invocation.
 
 ##### command
 
@@ -1725,6 +1742,11 @@ The annotation triple a [RiskTier](#risktier) maps to (execution plan §9's tabl
 `openWorldHint` is set by the tool (always `true` — every command touches the
 mesh), so it is not part of the tier mapping.
 
+This triple is surfaced **in the structured output** of every `admin` result
+([AdminResult.annotations](#annotations)), not as MCP tool-level annotations: `admin`
+is a single multiplexed tool, so its tool-level annotations are conservative
+and static (a single invocation can't carry per-command hints).
+
 #### Properties
 
 ##### destructiveHint
@@ -1992,7 +2014,15 @@ The kind of mesh traffic an event represents — the structural axis the
 const ADMIN_COMMAND_NAMES: [string, ...string[]];
 ```
 
-Every valid `command` name — the `admin` tool's `command` enum source.
+Every valid `command` name, in registry order — the enumerated command list.
+
+The `admin` tool deliberately validates its `command` arg with a bare
+`z.string()`, **not** `z.enum(ADMIN_COMMAND_NAMES)`: the MCP SDK validates the
+input schema *before* the tool handler runs, so a `z.enum` would reject an
+unknown value with raw Zod JSON and bypass the friendly "Known commands: …"
+message ([MeshService.runAdmin](#runadmin) throws an `AdminCommandError`, caught by
+the tool — H8). So this list is the *source* of that known-command list (used
+in the error message), not an input-schema enum.
 
 ***
 
@@ -2003,7 +2033,9 @@ const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>>;
 ```
 
 The frozen registry of every enumerated `admin` command (execution plan §9).
-Keyed by `command` name; the `admin` tool's `command` enum is its keys.
+Keyed by `command` name; [MeshService.runAdmin](#runadmin) dispatches on these keys
+(see [ADMIN\_COMMAND\_NAMES](#admin_command_names) for why validation is by lookup, not a Zod
+enum).
 
 ***
 

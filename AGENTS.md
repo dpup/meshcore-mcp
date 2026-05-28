@@ -64,7 +64,10 @@ is the centre of gravity (`test/helpers/sim-server.ts`).
   live stream preserves that distinction (PRD §5.2).
 - `admin` exposes an **enumerated, curated** command set (execution plan §9) —
   never free-form text. Home node → structured `MeshCoreClient` methods; remote
-  node → CLI text. Each command carries a risk tier → MCP annotations.
+  node → CLI text. Each command carries a risk tier whose deterministic
+  `{ readOnlyHint, destructiveHint, idempotentHint }` triple (`annotationsForTier`)
+  is surfaced in the result's **structured output**, not the tool's MCP
+  annotations (which stay conservative + static — `admin` is one multiplexed tool).
 
 ## Layout
 
@@ -133,9 +136,18 @@ the text `bun.lock`; bun 1.1.x writes the binary `bun.lockb` (gitignored).
 3. **Provenance is structural** — don't collapse verified `channelMessage`/
    `contactMessage` vs. unverified `channelData`/`advert`/`raw`; the live stream
    and `get_recent_traffic` must carry a derived `decryptVerified` per event.
-4. **`admin` is enumerated** (the frozen `ADMIN_COMMANDS`), never free-form; risk
-   tier → annotations (`annotationsForTier`) is deterministic; `dryRun` previews
-   are synthesized **without contacting the device**.
+4. **`admin` is enumerated** (the frozen `ADMIN_COMMANDS`), never free-form; the
+   risk tier → `{ readOnlyHint, destructiveHint, idempotentHint }` mapping
+   (`annotationsForTier`) is deterministic and **live**: every `runAdmin` result
+   carries it in the structured output (`AdminResult.annotations`). It is *not*
+   the tool's MCP annotations — `admin` is one multiplexed tool, so its
+   tool-level annotations stay **conservative + static** (a single invocation
+   can't carry per-command hints). The `command` arg is a bare `z.string()`, not
+   a `z.enum(ADMIN_COMMAND_NAMES)`: the SDK validates the input schema before the
+   handler, so an enum would reject an unknown name with raw Zod JSON; instead
+   `runAdmin` looks the name up and throws a friendly `AdminCommandError` listing
+   `ADMIN_COMMAND_NAMES` (caught into an actionable `isError` result — H8).
+   `dryRun` previews are synthesized **without contacting the device**.
 5. **Annotations are the boundary** — every tool declares
    `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`;
    `send_message` is non-idempotent; reads are read-only + idempotent.

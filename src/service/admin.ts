@@ -42,10 +42,12 @@ export type RiskTier = "read" | "benign" | "config" | "sensitive" | "destructive
 export type AdminScope = "home+remote" | "remote-only";
 
 /**
- * One enumerated admin command. The `admin` tool validates its `command`
- * argument against the registry's keys and derives annotations from `tier`;
- * adding a command is one new {@link AdminCommandDef} entry (execution plan §9
- * "Adding a command is one new entry").
+ * One enumerated admin command. {@link MeshService.runAdmin} validates the
+ * caller's `command` against the registry's keys (a bad name surfaces the
+ * friendly known-command list — H8) and surfaces the `tier`'s
+ * {@link annotationsForTier} triple in the structured output; adding a command
+ * is one new {@link AdminCommandDef} entry (execution plan §9 "Adding a command
+ * is one new entry").
  *
  * @typeParam P - The parsed shape of this command's params (inferred from
  *   {@link params}).
@@ -86,6 +88,11 @@ export interface AdminCommandDef<P = unknown> {
  * The annotation triple a {@link RiskTier} maps to (execution plan §9's table).
  * `openWorldHint` is set by the tool (always `true` — every command touches the
  * mesh), so it is not part of the tier mapping.
+ *
+ * This triple is surfaced **in the structured output** of every `admin` result
+ * ({@link AdminResult.annotations}), not as MCP tool-level annotations: `admin`
+ * is a single multiplexed tool, so its tool-level annotations are conservative
+ * and static (a single invocation can't carry per-command hints).
  */
 export interface TierAnnotations {
   readOnlyHint: boolean;
@@ -153,7 +160,9 @@ function define<S extends z.ZodType>(
 
 /**
  * The frozen registry of every enumerated `admin` command (execution plan §9).
- * Keyed by `command` name; the `admin` tool's `command` enum is its keys.
+ * Keyed by `command` name; {@link MeshService.runAdmin} dispatches on these keys
+ * (see {@link ADMIN_COMMAND_NAMES} for why validation is by lookup, not a Zod
+ * enum).
  */
 export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.freeze({
   reboot: define({
@@ -357,5 +366,15 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
   }),
 });
 
-/** Every valid `command` name — the `admin` tool's `command` enum source. */
+/**
+ * Every valid `command` name, in registry order — the enumerated command list.
+ *
+ * The `admin` tool deliberately validates its `command` arg with a bare
+ * `z.string()`, **not** `z.enum(ADMIN_COMMAND_NAMES)`: the MCP SDK validates the
+ * input schema *before* the tool handler runs, so a `z.enum` would reject an
+ * unknown value with raw Zod JSON and bypass the friendly "Known commands: …"
+ * message ({@link MeshService.runAdmin} throws an `AdminCommandError`, caught by
+ * the tool — H8). So this list is the *source* of that known-command list (used
+ * in the error message), not an input-schema enum.
+ */
 export const ADMIN_COMMAND_NAMES = Object.keys(ADMIN_COMMANDS) as [string, ...string[]];

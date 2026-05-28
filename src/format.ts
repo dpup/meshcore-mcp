@@ -314,18 +314,35 @@ export function digestTrace(r: { hopCount: number; hops: { hash: string; snr: nu
 export const adminOutputShape = {
   command: z.string(),
   tier: z.enum(["read", "benign", "config", "sensitive", "destructive"]),
+  annotations: z
+    .object({
+      readOnlyHint: z.boolean(),
+      destructiveHint: z.boolean(),
+      idempotentHint: z.boolean(),
+    })
+    .describe(
+      "the deterministic per-command risk hints this tier maps to; surfaced here " +
+        "(not as MCP tool-level annotations) because `admin` is one multiplexed tool",
+    ),
   dryRun: z.boolean(),
   via: z.enum(["home", "remote"]).optional(),
   preview: z.string().optional(),
   reply: z.string().optional(),
 } as const;
 
-/** A digest of an {@link AdminResult} — the preview for a dry-run, else the outcome. */
+/**
+ * A digest of an {@link AdminResult} — the preview for a dry-run, else the
+ * outcome. The `[tier]` tag carries the per-command risk; a `⚠` marks a
+ * destructive command (from the tier's `destructiveHint`). The full
+ * `{ readOnlyHint, destructiveHint, idempotentHint }` triple lives in the
+ * structured output (`AdminResult.annotations`), this is just the prose hint.
+ */
 export function digestAdmin(node: string, r: AdminResult): string {
+  const tag = r.annotations.destructiveHint ? `⚠ ${r.tier}` : r.tier;
   if (r.dryRun) {
-    return `Dry-run [${r.tier}] ${r.command}: ${r.preview ?? ""}`;
+    return `Dry-run [${tag}] ${r.command}: ${r.preview ?? ""}`;
   }
-  const head = `${r.command} [${r.tier}] on ${node} — done (${r.via})`;
+  const head = `${r.command} [${tag}] on ${node} — done (${r.via})`;
   return r.reply !== undefined ? `${head}\n${r.reply}` : head;
 }
 

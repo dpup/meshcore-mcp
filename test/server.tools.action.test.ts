@@ -87,6 +87,14 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
     expect(result.dryRun).toBe(true);
     expect(result.command).toBe("reboot");
     expect(result.tier).toBe("destructive");
+    // The deterministic tier → annotations triple rides along in the structured
+    // output (it can't be the tool's static annotations — admin is multiplexed).
+    expect(result.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(result.annotations).toEqual(annotationsForTier(result.tier));
     expect(result.preview).toBeDefined();
     expect(result.preview).toContain("Reboot Rocky");
     // No exec happened: no via, no reply.
@@ -108,6 +116,13 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
     expect(result.dryRun).toBe(false);
     expect(result.command).toBe("set-tx-power");
     expect(result.tier).toBe("config");
+    // A `config`-tier command: not read-only, not destructive, idempotent.
+    expect(result.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(result.annotations).toEqual(annotationsForTier(result.tier));
     expect(result.via).toBe("home");
     expect(result.reply).toBeUndefined();
 
@@ -149,6 +164,9 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
     expect(result.dryRun).toBe(false);
     expect(result.via).toBe("remote");
     expect(result.command).toBe("reboot");
+    // The remote-exec path carries the triple too (reboot → destructive).
+    expect(result.annotations).toEqual(annotationsForTier(result.tier));
+    expect(result.annotations.destructiveHint).toBe(true);
     expect(result.reply).toBe("OK - rebooting");
     expect(text(res)).toContain("OK - rebooting");
 

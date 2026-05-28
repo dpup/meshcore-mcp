@@ -1,14 +1,24 @@
 /**
  * `admin` — the single, enumerated admin tool (PRD §5.1, §5.3; execution plan §9).
  *
- * `admin` is **never** free-form text: its `command` argument is an enum over
- * {@link ADMIN_COMMANDS}'s keys, and params are validated against each command's
- * Zod schema. The tool carries **conservative static annotations**
- * (`readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`,
- * `openWorldHint: true`) because the set *can* be destructive; the **per-command
- * risk `tier`** is surfaced in the structured output instead (and the
- * description enumerates every command with its tier + params, so an agent can
- * discover the surface). Dispatch — home structured method vs. remote
+ * `admin` is **never** free-form text: its `command` must name one of
+ * {@link ADMIN_COMMANDS}'s keys, and params are validated against that command's
+ * Zod schema. The `command` arg itself is a bare `z.string()` (not a `z.enum`)
+ * **on purpose**: the MCP SDK validates the input schema before this handler
+ * runs, so a `z.enum` would reject an unknown name with raw Zod JSON; instead
+ * {@link MeshService.runAdmin} looks the name up and throws a friendly
+ * `AdminCommandError` listing the valid commands ({@link ADMIN_COMMAND_NAMES}),
+ * which the handler catches into an actionable `isError` result (H8).
+ *
+ * The tool carries **conservative static annotations** (`readOnlyHint: false`,
+ * `destructiveHint: true`, `idempotentHint: false`, `openWorldHint: true`)
+ * because the set *can* be destructive and a single multiplexed tool can't carry
+ * per-command annotations. The **per-command risk** is surfaced in the
+ * structured output instead: the `tier` plus the deterministic
+ * `{ readOnlyHint, destructiveHint, idempotentHint }` triple it maps to
+ * (`annotationsForTier`), in {@link AdminResult.annotations}. The description
+ * also enumerates every command with its tier + params, so an agent can discover
+ * the surface. Dispatch — home structured method vs. remote
  * `login → CliData → reply` — lives in {@link MeshService.runAdmin}.
  */
 

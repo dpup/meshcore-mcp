@@ -46,8 +46,8 @@ import { randomBytes } from "node:crypto";
 
 import type { Clock, TimerHandle } from "../clock.js";
 import { withRetry } from "../retry.js";
-import type { AdminCommandDef, RiskTier } from "./admin.js";
-import { ADMIN_COMMANDS } from "./admin.js";
+import type { AdminCommandDef, RiskTier, TierAnnotations } from "./admin.js";
+import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
 import { TrafficBuffer } from "./traffic-buffer.js";
 import type { TrafficEvent, TrafficKind } from "./traffic-buffer.js";
@@ -130,14 +130,25 @@ export interface SendMessageResult {
  * - **remote exec** — `dryRun: false`, dispatched via the
  *   `login → CliData → reply` handshake (carries the repeater's `reply` text).
  *
- * Every variant carries the `command` and its `tier` so the tool can surface
- * the per-command risk in its structured output.
+ * Every variant carries the `command`, its `tier`, and the deterministic
+ * `{ readOnlyHint, destructiveHint, idempotentHint }` triple that tier maps to
+ * (via {@link annotationsForTier}), so an agent receives the per-command risk in
+ * the structured output. (The MCP *tool-level* annotations stay conservative and
+ * static — `admin` is one multiplexed tool, so a single invocation can't carry
+ * per-command annotations; this field is where the per-command mapping is
+ * surfaced instead. AGENTS.md don't-regress #4.)
  */
 export interface AdminResult {
   /** The command that ran (its registry name). */
   command: string;
   /** The command's risk tier (execution plan §9). */
   tier: RiskTier;
+  /**
+   * The deterministic annotation triple the {@link tier} maps to
+   * ({@link annotationsForTier}) — the per-command risk hints, surfaced here
+   * because the tool-level annotations can't vary per invocation.
+   */
+  annotations: TierAnnotations;
   /** Whether this was a dry-run (no device contact). */
   dryRun: boolean;
   /** Where the command was dispatched (absent for a dry-run). */
@@ -731,7 +742,12 @@ export class MeshService {
   ): Promise<AdminResult> {
     const def = ADMIN_COMMANDS[command];
     if (def === undefined) {
-      const known = Object.keys(ADMIN_COMMANDS).join(", ");
+      // ADMIN_COMMAND_NAMES is the registry's enumerated command list — the same
+      // source the tool description's catalogue draws from. `command` stays a
+      // bare `z.string()` (not a `z.enum`) on purpose: the MCP SDK validates the
+      // input schema *before* the handler runs, so a `z.enum` would reject an
+      // unknown value with raw Zod JSON and bypass this friendly message (H8).
+      const known = ADMIN_COMMAND_NAMES.join(", ");
       throw new AdminCommandError(
         `Unknown admin command "${command}". Known commands: ${known}.`,
       );
@@ -750,6 +766,7 @@ export class MeshService {
       return {
         command,
         tier: def.tier,
+        annotations: annotationsForTier(def.tier),
         dryRun: true,
         preview: def.preview(node, p),
       };
@@ -767,7 +784,13 @@ export class MeshService {
         );
       }
       await def.home(this.client, node, p);
-      return { command, tier: def.tier, dryRun: false, via: "home" };
+      return {
+        command,
+        tier: def.tier,
+        annotations: annotationsForTier(def.tier),
+        dryRun: false,
+        via: "home",
+      };
     }
 
     // Remote dispatch: login → CliData → await reply.
@@ -839,6 +862,7 @@ export class MeshService {
       return {
         command: def.name,
         tier: def.tier,
+        annotations: annotationsForTier(def.tier),
         dryRun: false,
         via: "remote",
         reply: def.secret ? SECRET_REPLY_WITHHELD : reply,
