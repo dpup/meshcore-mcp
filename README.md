@@ -23,12 +23,31 @@ to be a faithful, well-shaped device interface, and to mark read-versus-action o
 every tool so a consuming policy layer, or a reviewing human, can reason about
 safety mechanically.
 
+> [!WARNING]
+> **The commands are ungated.** `send_message`, `set_channel`, `delete_channel`,
+> `trace_path`, and `admin` transmit on the mesh and change device state with **no
+> built-in approval or policy layer** of their own. With **Claude Code** you
+> approve every tool call — that human-in-the-loop *is* the gate, and what makes
+> interactive use safe. For **autonomous or headless** use, put your own policy
+> layer in front (that is `meshcore-elmer`'s job) — don't point an unattended
+> agent at a live mesh without one. Every tool is annotated read-only vs. action
+> (`readOnlyHint` / `destructiveHint`) so a policy layer, or a reviewing human,
+> can reason about safety mechanically.
+
 ## Use it with Claude Code
 
 `meshcore-mcp` is a local-process server (stdio). The simplest consumer is a
 human operator with Claude Code: add one entry to your MCP configuration,
-pointing it at a node, and operate the mesh in plain language. Claude Code
-prompts before every tool call, so no policy layer is needed.
+pointing it at a node, and operate the mesh in plain language — Claude Code
+prompts before every tool call, so no policy layer is needed (see the warning
+above).
+
+**Pick the config that matches how your node is flashed.** A MeshCore node runs
+*either* a WiFi companion firmware (`companion_radio_wifi`, reached over TCP/IP)
+*or* a USB/serial companion firmware — one transport per build. Set the matching
+variable; setting both is rejected at startup with a legible error.
+
+**WiFi / IP companion** — point it at the node's address (default port `5000`):
 
 ```json
 {
@@ -44,6 +63,27 @@ prompts before every tool call, so no policy layer is needed.
   }
 }
 ```
+
+**USB / serial companion** — point it at the device path (`/dev/ttyACM0` on
+Linux, `/dev/tty.usbmodemXXXX` on macOS, `COM3` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "meshcore": {
+      "command": "npx",
+      "args": ["-y", "@dpup/meshcore-mcp"],
+      "env": {
+        "MESHCORE_SERIAL_PATH": "/dev/ttyACM0"
+      }
+    }
+  }
+}
+```
+
+> Serial needs Node's native `serialport` bindings — the published `npx` / binary
+> path runs on Node, so this just works (the `bun` dev entrypoint can't load the
+> serial native module).
 
 The server reads its home node and credentials from the environment its launcher
 hands it; a malformed or missing config exits non-zero with a legible message
