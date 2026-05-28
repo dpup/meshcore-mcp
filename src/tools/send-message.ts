@@ -27,7 +27,10 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
         "prefix) or a channel (`#name`, `#index`, or a bare channel index). A " +
         "resend is a second transmission — not idempotent. Set `confirm: true` to " +
         "wait for the delivery ack and report whether it arrived + the round-trip " +
-        "time (direct messages only — channels/broadcasts aren't acked).",
+        "time. Confirmation applies to **direct (contact) messages only**: a " +
+        "channel/broadcast has no single recipient to ack, so a `confirm: true` " +
+        "channel send returns `confirmationNotApplicable: true` (and no " +
+        "`delivered`) rather than silently ignoring the request.",
       inputSchema: {
         target: z
           .string()
@@ -38,7 +41,9 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
         confirm: z
           .boolean()
           .optional()
-          .describe("wait for and report the delivery ack + round-trip (direct messages only)"),
+          .describe(
+            "wait for and report the delivery ack + round-trip. Direct (contact) messages only — for a channel/broadcast send the result reports `confirmationNotApplicable: true` instead (no single recipient to ack)",
+          ),
       },
       outputSchema: sendMessageOutputShape,
       annotations: {
@@ -50,7 +55,7 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
     },
     async ({ target, text, confirm }) => {
       try {
-        const result = await service.sendMessage(target, text, confirm ?? false);
+        const result = await service.sendMessage(target, text, { confirm: confirm ?? false });
         return {
           content: [{ type: "text", text: digestSendMessage(result) }],
           // Widen to the SDK's record shape; the outputSchema validates it.

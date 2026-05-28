@@ -321,6 +321,12 @@ export const sendMessageOutputShape = {
     .optional()
     .describe("delivery ack result (only when confirm requested, contact sends): true if acked, false if none arrived in the window"),
   roundTripMs: z.number().optional().describe("round-trip time of the delivery ack, ms (when delivered)"),
+  confirmationNotApplicable: z
+    .boolean()
+    .optional()
+    .describe(
+      "true when confirm was requested for a channel/broadcast send: there is no single recipient to ack, so delivery confirmation does not apply (delivered/roundTripMs are correctly absent) — distinct from a fire-and-forget send",
+    ),
 } as const;
 
 /** A one-line digest of a {@link SendMessageResult}. */
@@ -333,7 +339,10 @@ export function digestSendMessage(r: SendMessageResult): string {
     return `Sent to ${who}: "${r.text}"${suffix}`;
   }
   const where = r.channelName ? `#${r.channelName} (ch${r.channelIdx})` : `ch${r.channelIdx}`;
-  return `Sent to channel ${where}: "${r.text}"`;
+  const note = r.confirmationNotApplicable
+    ? " (channel broadcast — delivery acks apply to direct messages only)"
+    : "";
+  return `Sent to channel ${where}: "${r.text}"${note}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -119,6 +119,16 @@ export interface SendMessageResult {
   delivered?: boolean;
   /** Round-trip time of the delivery ack in ms, when `delivered`. */
   roundTripMs?: number;
+  /**
+   * `true` when `confirm` was requested but the resolved target is a
+   * channel/broadcast, which has no single recipient to ack — so delivery
+   * confirmation does not apply and `delivered`/`roundTripMs` are (correctly)
+   * absent. This is the *explicit, honest* signal that the request was
+   * understood but is inapplicable, distinguishing it from a `confirm: false`
+   * send (where both this flag and `delivered` are absent). Never set for a
+   * contact send.
+   */
+  confirmationNotApplicable?: boolean;
 }
 
 /**
@@ -639,14 +649,29 @@ export class MeshService {
    * channel — not the raw `SentResult`. An unknown target throws a
    * {@link MeshServiceUnknownNodeError}, which the tool layer formats.
    */
-  async sendMessage(target: string, text: string, confirm = false): Promise<SendMessageResult> {
+  async sendMessage(
+    target: string,
+    text: string,
+    opts: { confirm?: boolean } = {},
+  ): Promise<SendMessageResult> {
+    const confirm = opts.confirm ?? false;
     const result = await this.transmit(target, text, confirm);
     // H4: record our own send so it surfaces in recent traffic / the live stream.
     this.recordSent(result);
     return result;
   }
 
-  /** Resolve `target` and transmit; returns the structured result (no recording). */
+  /**
+   * Resolve `target` and transmit; returns the structured result (no recording).
+   *
+   * `confirm` is honoured only for a **contact** send (a direct message has a
+   * single recipient that acks). A channel/broadcast has no single recipient, so
+   * confirmation is genuinely impossible — rather than silently swallow the
+   * request, every channel branch carries the requested `confirm` through
+   * {@link channelResult}, which flags `confirmationNotApplicable` when it was
+   * asked for, so the result says so plainly instead of returning a bare absent
+   * `delivered`.
+   */
   private async transmit(target: string, text: string, confirm: boolean): Promise<SendMessageResult> {
     // An explicit channel reference: `#name` or `#idx`.
     if (target.startsWith("#")) {
@@ -656,12 +681,7 @@ export class MeshService {
         throw await this.unknownChannelError(target);
       }
       await this.client.sendChannelTextMessage(channel.channelIdx, text);
-      return {
-        kind: "channel",
-        channelIdx: channel.channelIdx,
-        channelName: channel.name,
-        text,
-      };
+      return this.channelResult(channel.channelIdx, channel.name, text, confirm);
     }
 
     // A bare integer is a channel index.
@@ -669,12 +689,7 @@ export class MeshService {
       const idx = Number(target);
       const channel = await this.resolveChannelByIndex(idx);
       await this.client.sendChannelTextMessage(idx, text);
-      return {
-        kind: "channel",
-        channelIdx: idx,
-        channelName: channel?.name,
-        text,
-      };
+      return this.channelResult(idx, channel?.name, text, confirm);
     }
 
     // Otherwise a contact by name or hex prefix.
@@ -694,15 +709,28 @@ export class MeshService {
     const channel = await this.resolveChannel(target);
     if (channel !== undefined) {
       await this.client.sendChannelTextMessage(channel.channelIdx, text);
-      return {
-        kind: "channel",
-        channelIdx: channel.channelIdx,
-        channelName: channel.name,
-        text,
-      };
+      return this.channelResult(channel.channelIdx, channel.name, text, confirm);
     }
 
     throw new MeshServiceUnknownNodeError(target);
+  }
+
+  /**
+   * Build a `kind: "channel"` {@link SendMessageResult}. When `confirm` was
+   * requested, set {@link SendMessageResult.confirmationNotApplicable} — a
+   * channel/broadcast has no single recipient to ack, so confirmation does not
+   * apply; the flag makes that explicit instead of leaving `delivered` silently
+   * absent (indistinguishable from a fire-and-forget send).
+   */
+  private channelResult(
+    channelIdx: number,
+    channelName: string | undefined,
+    text: string,
+    confirm: boolean,
+  ): SendMessageResult {
+    const result: SendMessageResult = { kind: "channel", channelIdx, channelName, text };
+    if (confirm) result.confirmationNotApplicable = true;
+    return result;
   }
 
   /**

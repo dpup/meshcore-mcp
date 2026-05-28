@@ -339,7 +339,7 @@ A `remote-only` command targeting the home node throws an
 sendMessage(
    target, 
    text, 
-confirm?): Promise<SendMessageResult>;
+opts?): Promise<SendMessageResult>;
 ```
 
 Send a text message, resolving `target` as either a **contact** or a
@@ -358,11 +358,12 @@ channel — not the raw `SentResult`. An unknown target throws a
 
 ###### Parameters
 
-| Parameter | Type | Default value |
-| ------ | ------ | ------ |
-| `target` | `string` | `undefined` |
-| `text` | `string` | `undefined` |
-| `confirm` | `boolean` | `false` |
+| Parameter | Type |
+| ------ | ------ |
+| `target` | `string` |
+| `text` | `string` |
+| `opts` | \{ `confirm?`: `boolean`; \} |
+| `opts.confirm?` | `boolean` |
 
 ###### Returns
 
@@ -1624,6 +1625,20 @@ optional channelName?: string;
 ```
 
 The resolved channel name, where known (for `kind: "channel"`).
+
+##### confirmationNotApplicable?
+
+```ts
+optional confirmationNotApplicable?: boolean;
+```
+
+`true` when `confirm` was requested but the resolved target is a
+channel/broadcast, which has no single recipient to ack — so delivery
+confirmation does not apply and `delivered`/`roundTripMs` are (correctly)
+absent. This is the *explicit, honest* signal that the request was
+understood but is inapplicable, distinguishing it from a `confirm: false`
+send (where both this flag and `delivered` are absent). Never set for a
+contact send.
 
 ##### contact?
 
