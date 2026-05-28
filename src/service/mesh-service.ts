@@ -40,6 +40,8 @@ import type {
 
 import { MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 
+import { randomBytes } from "node:crypto";
+
 import type { Clock, TimerHandle } from "../clock.js";
 import type { AdminCommandDef, RiskTier } from "./admin.js";
 import { ADMIN_COMMANDS } from "./admin.js";
@@ -339,6 +341,40 @@ export class MeshService {
     const survey = await this.surveyMesh();
     const names = [survey.home.name, ...survey.contacts.map((c) => c.name)];
     return [...new Set(names.filter((n) => n.length > 0))];
+  }
+
+  /** The device's configured channels (slot index, name, hex secret). */
+  async channels(): Promise<Channel[]> {
+    return this.client.getChannels();
+  }
+
+  /**
+   * Add or overwrite a channel slot. With no `secret`, generates a random
+   * 16-byte key (a private "random" channel); with no `index`, uses the next
+   * free slot (so a plain add never clobbers an existing channel). Returns the
+   * resulting channel including its secret (hex), so the key can be shared.
+   */
+  async setChannel(opts: {
+    name: string;
+    secret?: string;
+    index?: number;
+  }): Promise<{ index: number; name: string; secret: string }> {
+    const secret = opts.secret ?? randomBytes(16).toString("hex");
+    const index = opts.index ?? (await this.nextFreeChannelIndex());
+    await this.client.setChannel(index, opts.name, secret);
+    return { index, name: opts.name, secret };
+  }
+
+  /**
+   * The next free channel slot. The device returns every slot (configured or
+   * not) with empty-named ones free, so prefer the first empty-named slot;
+   * fall back to one past the highest index when none is empty.
+   */
+  private async nextFreeChannelIndex(): Promise<number> {
+    const channels = await this.client.getChannels();
+    const empty = channels.find((c) => c.name === "");
+    if (empty !== undefined) return empty.channelIdx;
+    return channels.reduce((max, c) => Math.max(max, c.channelIdx), -1) + 1;
   }
 
   /**

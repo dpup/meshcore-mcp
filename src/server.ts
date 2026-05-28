@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerPrompts } from "./prompts/index.js";
+import { registerChannels } from "./resources/channels.js";
 import { registerContacts } from "./resources/contacts.js";
 import { registerHelp } from "./resources/help.js";
 import { registerNode } from "./resources/node.js";
@@ -12,6 +13,7 @@ import { registerAdmin } from "./tools/admin.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 import { registerSendMessage } from "./tools/send-message.js";
+import { registerSetChannel } from "./tools/set-channel.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
 import { VERSION } from "./version.js";
 
@@ -69,10 +71,12 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerSurveyMesh(server, options.service);
     registerGetRecentTraffic(server, options.service);
     registerSendMessage(server, options.service);
+    registerSetChannel(server, options.service);
     registerAdmin(server, options.service);
 
     registerNodes(server, options.service);
     registerContacts(server, options.service);
+    registerChannels(server, options.service);
     registerTrafficLive(server, options.service);
     registerNode(server, options.service); // meshcore://node/{node} — completes node names
     registerHelp(server); // meshcore://help — pull-on-demand reference

@@ -63,12 +63,16 @@ export { registerGetNodeHealth } from "./tools/get-node-health.js";
 export { registerSurveyMesh } from "./tools/survey-mesh.js";
 export { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 export { registerSendMessage } from "./tools/send-message.js";
+export { registerSetChannel } from "./tools/set-channel.js";
 export { registerAdmin } from "./tools/admin.js";
 
 // Resource registrars (wired by createServer; exported for reuse/inspection).
 export { registerTrafficLive, TRAFFIC_LIVE_URI } from "./resources/traffic-live.js";
 export { registerNodes, NODES_URI } from "./resources/nodes.js";
 export { registerContacts, CONTACTS_URI } from "./resources/contacts.js";
+export { registerChannels, CHANNELS_URI } from "./resources/channels.js";
+export { registerNode } from "./resources/node.js";
+export { registerHelp, HELP_URI } from "./resources/help.js";
 
 // Prompt registrar — the curated prompt templates (M5).
 export { registerPrompts } from "./prompts/index.js";

@@ -209,6 +209,22 @@ export function digestSendMessage(r: SendMessageResult): string {
 }
 
 // ---------------------------------------------------------------------------
+// set_channel
+// ---------------------------------------------------------------------------
+
+/** Output schema (raw shape) for `set_channel`. */
+export const setChannelOutputShape = {
+  index: z.number().describe("the channel slot the channel was written to"),
+  name: z.string(),
+  secret: z.string().describe("16-byte channel key as 32 hex chars — share this for others to join"),
+} as const;
+
+/** A one-line digest of a {@link setChannelOutputShape} result. */
+export function digestSetChannel(r: { index: number; name: string; secret: string }): string {
+  return `Channel "${r.name}" set at slot ${r.index} — key ${r.secret} (share it for others to join).`;
+}
+
+// ---------------------------------------------------------------------------
 // admin
 // ---------------------------------------------------------------------------
 

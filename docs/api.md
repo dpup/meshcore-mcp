@@ -134,6 +134,18 @@ new MeshService(
 
 #### Methods
 
+##### channels()
+
+```ts
+channels(): Promise<Channel[]>;
+```
+
+The device's configured channels (slot index, name, hex secret).
+
+###### Returns
+
+`Promise`\<`Channel`[]\>
+
 ##### contacts()
 
 ```ts
@@ -319,6 +331,38 @@ channel — not the raw `SentResult`. An unknown target throws a
 ###### Returns
 
 `Promise`\<[`SendMessageResult`](#sendmessageresult)\>
+
+##### setChannel()
+
+```ts
+setChannel(opts): Promise<{
+  index: number;
+  name: string;
+  secret: string;
+}>;
+```
+
+Add or overwrite a channel slot. With no `secret`, generates a random
+16-byte key (a private "random" channel); with no `index`, uses the next
+free slot (so a plain add never clobbers an existing channel). Returns the
+resulting channel including its secret (hex), so the key can be shared.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `opts` | \{ `index?`: `number`; `name`: `string`; `secret?`: `string`; \} |
+| `opts.index?` | `number` |
+| `opts.name` | `string` |
+| `opts.secret?` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `index`: `number`;
+  `name`: `string`;
+  `secret`: `string`;
+\}\>
 
 ##### start()
 
@@ -1832,6 +1876,16 @@ Keyed by `command` name; the `admin` tool's `command` enum is its keys.
 
 ***
 
+### CHANNELS\_URI
+
+```ts
+const CHANNELS_URI: "meshcore://channels" = "meshcore://channels";
+```
+
+The URI of the channels list resource.
+
+***
+
 ### CONTACTS\_URI
 
 ```ts
@@ -1849,6 +1903,16 @@ const DEFAULT_TRAFFIC_CAPACITY: 500 = 500;
 ```
 
 Default ring-buffer capacity.
+
+***
+
+### HELP\_URI
+
+```ts
+const HELP_URI: "meshcore://help" = "meshcore://help";
+```
+
+The URI of the help document resource.
 
 ***
 
@@ -2015,6 +2079,29 @@ Register the `admin` action tool on `server`, backed by `service`.
 
 ***
 
+### registerChannels()
+
+```ts
+function registerChannels(server, service): void;
+```
+
+Register the pull-style `meshcore://channels` resource — the connected node's
+configured channel slots (index, name, and the hex key, so a channel can be
+shared or rejoined). Add channels with the `set_channel` tool.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerContacts()
 
 ```ts
@@ -2064,6 +2151,53 @@ function registerGetRecentTraffic(server, service): void;
 ```
 
 Register the `get_recent_traffic` read tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerHelp()
+
+```ts
+function registerHelp(server): void;
+```
+
+Register the pull-style `meshcore://help` resource — a markdown reference an
+agent can fetch on demand when it wants more than the `initialize`
+instructions. Static content; needs no [MeshService](#meshservice).
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerNode()
+
+```ts
+function registerNode(server, service): void;
+```
+
+Register the `meshcore://node/{node}` resource template — one node's health
+snapshot by name or hex key prefix, with the `{node}` variable **autocompleting**
+to live node/contact names (`completion/complete`). This is the
+resource-template counterpart to `get_node_health`, and the MCP-supported way
+to make node names discoverable/completable (tool arguments can't be completed).
 
 #### Parameters
 
@@ -2131,6 +2265,31 @@ function registerSendMessage(server, service): void;
 ```
 
 Register the `send_message` action tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetChannel()
+
+```ts
+function registerSetChannel(server, service): void;
+```
+
+`set_channel` — add or overwrite a channel slot on the connected node. Channel
+config is a home-node (companion) operation with no remote-CLI form, so it is
+its own tool rather than an `admin` command. Omit `secret` to generate a
+random private channel; omit `index` to take the next free slot (a plain add
+never clobbers an existing channel).
 
 #### Parameters
 
