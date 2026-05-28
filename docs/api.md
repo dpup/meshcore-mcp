@@ -1326,6 +1326,16 @@ Battery, where reported (home: `getBatteryVoltage`; remote: stats).
 milliVolts: number;
 ```
 
+###### percent?
+
+```ts
+optional percent?: number;
+```
+
+Approximate charge %, present only for a plausible 1S Li-ion reading.
+A rough linear estimate (≈3.3 V empty … 4.2 V full) — friendly, not exact;
+the discharge curve is nonlinear and chemistry varies.
+
 ###### volts?
 
 ```ts

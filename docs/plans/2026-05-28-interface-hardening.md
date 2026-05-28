@@ -87,6 +87,7 @@ the margin, defer. Shipped so far:
 | H11 | survey roster sorted most-recently-heard first (structured + resource) | `0f33bf4` |
 | H12 | timeout hint: "(the node may be offline or out of range)" | `9450fd1` |
 | H13 | survey summary line: "50 contact(s) — 22 heard in the last hour, 39 repeaters, 9 rooms" | `9450fd1` |
+| H14 | get_node_health battery shows an approximate charge % ("3.77V (~52%)"), not raw mV | (this commit) |
 
 Live-confirmed on the real 50-contact mesh. Candidate next items (triage against
 the bar): a rough battery % alongside voltage (delight, but a chemistry

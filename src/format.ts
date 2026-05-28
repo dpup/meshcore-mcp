@@ -34,7 +34,11 @@ export const nodeHealthOutputShape = {
   reachable: z.boolean(),
   lastHeardMs: z.number().optional(),
   battery: z
-    .object({ milliVolts: z.number(), volts: z.number().optional() })
+    .object({
+      milliVolts: z.number(),
+      volts: z.number().optional(),
+      percent: z.number().optional().describe("approximate charge % (rough 1S Li-ion estimate)"),
+    })
     .optional(),
   radio: z
     .object({
@@ -81,7 +85,8 @@ export function digestNodeHealth(h: NodeHealth): string {
 
   if (h.battery) {
     const v = h.battery.volts ?? h.battery.milliVolts / 1000;
-    lines.push(`battery ${v.toFixed(2)}V (${h.battery.milliVolts}mV)`);
+    const pct = h.battery.percent !== undefined ? ` (~${h.battery.percent}%)` : "";
+    lines.push(`battery ${v.toFixed(2)}V${pct}`);
   }
   if (h.radio) {
     lines.push(

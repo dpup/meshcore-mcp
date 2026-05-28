@@ -50,6 +50,12 @@ export interface NodeHealth {
     milliVolts: number;
     /** `milliVolts / 1000`, where the source reported millivolts. */
     volts?: number;
+    /**
+     * Approximate charge %, present only for a plausible 1S Li-ion reading.
+     * A rough linear estimate (≈3.3 V empty … 4.2 V full) — friendly, not exact;
+     * the discharge curve is nonlinear and chemistry varies.
+     */
+    percent?: number;
   };
 
   /** Radio configuration — home node only (read from `SelfInfo`). */

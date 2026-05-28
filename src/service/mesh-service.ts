@@ -195,6 +195,19 @@ function parseTracePath(path: string): Uint8Array {
   return fromHex(cleaned);
 }
 
+/**
+ * Build the battery block, adding a rough charge % for a plausible 1S Li-ion
+ * reading (≈3.3 V empty … 4.2 V full). A friendly estimate, not exact — the
+ * discharge curve is nonlinear; implausible readings get no %.
+ */
+function batteryInfo(milliVolts: number): NonNullable<NodeHealth["battery"]> {
+  const battery: NonNullable<NodeHealth["battery"]> = { milliVolts, volts: milliVolts / 1000 };
+  if (milliVolts >= 2500 && milliVolts <= 5000) {
+    battery.percent = Math.max(0, Math.min(100, Math.round(((milliVolts - 3300) / 900) * 100)));
+  }
+  return battery;
+}
+
 /** Map a meshcore-ts {@link TraceData} into the friendlier {@link TraceResult}. */
 function toTraceResult(trace: TraceData): TraceResult {
   const hashes = trace.pathHashes.match(/.{2}/g) ?? [];
@@ -980,7 +993,7 @@ export class MeshService {
     };
     if (deviceTime !== undefined) result.deviceTimeMs = deviceTime.getTime();
     if (batteryMilliVolts !== undefined) {
-      result.battery = { milliVolts: batteryMilliVolts, volts: batteryMilliVolts / 1000 };
+      result.battery = batteryInfo(batteryMilliVolts);
     }
     if (uptimeSecs !== undefined) result.uptimeSecs = uptimeSecs;
     if (txQueueLen !== undefined) result.txQueueLen = txQueueLen;
@@ -1017,7 +1030,7 @@ export class MeshService {
       role: contact.type,
       reachable: true,
       lastHeardMs: contact.lastAdvert.getTime(),
-      battery: { milliVolts: status.batteryMilliVolts, volts: status.batteryMilliVolts / 1000 },
+      battery: batteryInfo(status.batteryMilliVolts),
       uptimeSecs: status.totalUpTimeSecs,
       txQueueLen: status.currTxQueueLen,
       stats: {

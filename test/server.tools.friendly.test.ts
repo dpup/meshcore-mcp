@@ -98,3 +98,26 @@ describe("get_recent_traffic digest (H10 — human times)", () => {
     await h.cleanup();
   });
 });
+
+describe("battery percent (H14)", () => {
+  it("reports an approximate charge % for the home node and shows it in the digest", async () => {
+    // Sim battery is a %, mapped to 3000..4200mV: 80% ⇒ 3960mV.
+    const world = defineWorld({
+      homeNodeId: "base",
+      nodes: [node("base", { name: "Base", battery: 80 })],
+      channels: [channel(0, "public")],
+      contacts: [],
+    });
+    const h = await makeSimServer({ world });
+    const res = (await h.client.callTool({ name: "get_node_health", arguments: {} })) as {
+      structuredContent?: { battery?: { milliVolts: number; percent?: number } };
+      content?: { text?: string }[];
+    };
+    const bat = res.structuredContent?.battery;
+    expect(bat?.milliVolts).toBe(3960);
+    // (3960-3300)/900*100 = 73%
+    expect(bat?.percent).toBe(73);
+    expect(res.content?.[0]?.text ?? "").toMatch(/battery [\d.]+V \(~73%\)/);
+    await h.cleanup();
+  });
+});
