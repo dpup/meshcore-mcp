@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { resourceReadError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /** The URI of the channels list resource. */
@@ -20,20 +21,24 @@ export function registerChannels(server: McpServer, service: MeshService): void 
       mimeType: "application/json",
     },
     async () => {
-      // The device returns every slot (often dozens); show only configured
-      // ones (a non-empty name) so the list is signal, not 40 empty rows.
-      const channels = (await service.channels())
-        .filter((c) => c.name !== "")
-        .map((c) => ({ index: c.channelIdx, name: c.name, secret: c.secret }));
-      return {
-        contents: [
-          {
-            uri: CHANNELS_URI,
-            mimeType: "application/json",
-            text: JSON.stringify({ channels, count: channels.length }, null, 2),
-          },
-        ],
-      };
+      try {
+        // The device returns every slot (often dozens); show only configured
+        // ones (a non-empty name) so the list is signal, not 40 empty rows.
+        const channels = (await service.channels())
+          .filter((c) => c.name !== "")
+          .map((c) => ({ index: c.channelIdx, name: c.name, secret: c.secret }));
+        return {
+          contents: [
+            {
+              uri: CHANNELS_URI,
+              mimeType: "application/json",
+              text: JSON.stringify({ channels, count: channels.length }, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        resourceReadError(CHANNELS_URI, error, "reading channels");
+      }
     },
   );
 }

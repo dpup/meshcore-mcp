@@ -16,6 +16,7 @@ import {
   MeshCoreError,
   MeshCoreTimeoutError,
 } from "@dpup/meshcore-ts";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import type { Clock } from "./clock.js";
 
@@ -83,6 +84,25 @@ export function toolError(error: unknown, ctx: ErrorContext = {}): ToolErrorResu
     isError: true,
     content: [{ type: "text", text: `${prefix}${body}${attempted}${lastHeard}` }],
   };
+}
+
+/**
+ * The MCP `resources/read` result has no `isError` flag, so a thrown error
+ * becomes a JSON-RPC error — the SDK's default is the opaque `-32603 Request
+ * timed out waiting for a device response`. This helper rethrows the caught
+ * value as an {@link McpError} carrying the same **actionable, prefixed**
+ * message {@link toolError} produces — so the client gets a clean, useful
+ * error instead of a raw protocol code.
+ */
+export function resourceReadError(
+  uri: string,
+  error: unknown,
+  attempted: string,
+): never {
+  const formatted = toolError(error, { attempted });
+  const text = formatted.content[0]?.text ?? "device error";
+  // eslint-disable-next-line @typescript-eslint/no-throw-literal
+  throw new McpError(ErrorCode.InternalError, `${uri}: ${text}`);
 }
 
 /**

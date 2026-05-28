@@ -10,6 +10,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { resourceReadError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /** The canonical uri of the contacts resource. */
@@ -28,16 +29,20 @@ export function registerContacts(server: McpServer, service: MeshService): void 
       mimeType: "application/json",
     },
     async (uri) => {
-      const contacts = await service.contacts();
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "application/json",
-            text: JSON.stringify({ contacts, count: contacts.length }, null, 2),
-          },
-        ],
-      };
+      try {
+        const contacts = await service.contacts();
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify({ contacts, count: contacts.length }, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        resourceReadError(CONTACTS_URI, error, "reading contacts");
+      }
     },
   );
 }

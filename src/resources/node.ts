@@ -1,5 +1,6 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { resourceReadError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /**
@@ -31,13 +32,16 @@ export function registerNode(server: McpServer, service: MeshService): void {
     },
     async (uri, variables) => {
       const raw = variables.node;
-      const node = Array.isArray(raw) ? raw[0] : raw;
-      const health = await service.nodeHealth(
-        typeof node === "string" ? decodeURIComponent(node) : undefined,
-      );
-      return {
-        contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(health, null, 2) }],
-      };
+      const nodeArg = Array.isArray(raw) ? raw[0] : raw;
+      const resolved = typeof nodeArg === "string" ? decodeURIComponent(nodeArg) : undefined;
+      try {
+        const health = await service.nodeHealth(resolved);
+        return {
+          contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(health, null, 2) }],
+        };
+      } catch (error) {
+        resourceReadError(uri.href, error, `reading node "${resolved ?? "<home>"}"`);
+      }
     },
   );
 }

@@ -9,6 +9,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { resourceReadError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /** The canonical uri of the nodes/roster resource. */
@@ -27,16 +28,20 @@ export function registerNodes(server: McpServer, service: MeshService): void {
       mimeType: "application/json",
     },
     async (uri) => {
-      const survey = await service.surveyMesh();
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "application/json",
-            text: JSON.stringify(survey, null, 2),
-          },
-        ],
-      };
+      try {
+        const survey = await service.surveyMesh();
+        return {
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: "application/json",
+              text: JSON.stringify(survey, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        resourceReadError(NODES_URI, error, "reading mesh roster");
+      }
     },
   );
 }
