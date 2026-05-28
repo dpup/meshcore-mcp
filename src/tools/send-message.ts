@@ -12,15 +12,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { toolError } from "../errors.js";
 import { digestSendMessage, sendMessageOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /** Register the `send_message` action tool on `server`, backed by `service`. */
 export function registerSendMessage(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "send_message",
-    {
+  registerServiceTool(server, service, {
+    name: "send_message",
+    config: {
       title: "Send a message",
       description:
         "Transmit a text message. `target` is a contact (name or hex public-key " +
@@ -53,19 +53,12 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
         openWorldHint: true,
       },
     },
-    async ({ target, text, confirm }) => {
-      try {
-        const result = await service.sendMessage(target, text, { confirm: confirm ?? false });
-        return {
-          content: [{ type: "text", text: digestSendMessage(result) }],
-          // Widen to the SDK's record shape; the outputSchema validates it.
-          structuredContent: result as unknown as Record<string, unknown>,
-        };
-      } catch (error) {
-        // No `node` prefix: the resolution errors already name the target, and a
-        // channel/contact miss is a usage error, not "<target> unreachable".
-        return toolError(error, { attempted: "sending the message" });
-      }
+    // No `node` prefix: the resolution errors already name the target, and a
+    // channel/contact miss is a usage error, not "<target> unreachable".
+    errorContext: () => ({ attempted: "sending the message" }),
+    handle: async (svc, { target, text, confirm }) => {
+      const result = await svc.sendMessage(target, text, { confirm: confirm ?? false });
+      return { text: digestSendMessage(result), structured: result };
     },
-  );
+  });
 }

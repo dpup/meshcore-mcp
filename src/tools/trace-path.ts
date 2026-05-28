@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { toolError } from "../errors.js";
 import { digestTrace, tracePathOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /**
  * `trace_path` — trace a route through the mesh and report each hop's SNR. Send
@@ -15,9 +15,9 @@ import type { MeshService } from "../service/mesh-service.js";
  * doesn't respond surfaces as an actionable timeout, not a hang.
  */
 export function registerTracePath(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "trace_path",
-    {
+  registerServiceTool(server, service, {
+    name: "trace_path",
+    config: {
       title: "Trace a mesh path",
       description:
         "Trace a route through the mesh and report each repeater hop's SNR. Give " +
@@ -44,18 +44,10 @@ export function registerTracePath(server: McpServer, service: MeshService): void
         openWorldHint: true,
       },
     },
-    async ({ path, node }) => {
-      try {
-        const result = await service.tracePath({ path, node });
-        return {
-          content: [{ type: "text", text: digestTrace(result) }],
-          // The outputSchema is the runtime guarantee; widen the named type to
-          // the SDK's record shape (matches the other tools).
-          structuredContent: result as unknown as Record<string, unknown>,
-        };
-      } catch (error) {
-        return toolError(error, { attempted: "tracing the path" });
-      }
+    errorContext: () => ({ attempted: "tracing the path" }),
+    handle: async (svc, { path, node }) => {
+      const result = await svc.tracePath({ path, node });
+      return { text: digestTrace(result), structured: result };
     },
-  );
+  });
 }

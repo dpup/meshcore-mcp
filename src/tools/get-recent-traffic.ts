@@ -21,9 +21,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { toMillis } from "../clock.js";
-import { toolError } from "../errors.js";
 import { digestRecentTraffic, recentTrafficOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /** A relative-duration `since` like `"10m"`, `"1h"`, `"30s"`, `"500ms"`. */
 const DURATION = /^\d+(?:\.\d+)?\s*(?:ms|s|m|h)$/i;
@@ -57,9 +57,9 @@ export function resolveSince(since: string | number | undefined, nowMs: number):
 
 /** Register the `get_recent_traffic` read tool on `server`, backed by `service`. */
 export function registerGetRecentTraffic(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "get_recent_traffic",
-    {
+  registerServiceTool(server, service, {
+    name: "get_recent_traffic",
+    config: {
       title: "Get recent traffic",
       description:
         "Recent live mesh traffic from the rolling buffer, oldest→newest, each " +
@@ -83,18 +83,12 @@ export function registerGetRecentTraffic(server: McpServer, service: MeshService
         openWorldHint: true,
       },
     },
-    async ({ since }) => {
-      try {
-        const now = service.now();
-        const threshold = resolveSince(since, now);
-        const events = service.recentTraffic(threshold);
-        return {
-          content: [{ type: "text", text: digestRecentTraffic(events, now) }],
-          structuredContent: { events, count: events.length },
-        };
-      } catch (error) {
-        return toolError(error, { attempted: "reading recent traffic" });
-      }
+    errorContext: () => ({ attempted: "reading recent traffic" }),
+    handle: async (svc, { since }) => {
+      const now = svc.now();
+      const threshold = resolveSince(since, now);
+      const events = svc.recentTraffic(threshold);
+      return { text: digestRecentTraffic(events, now), structured: { events, count: events.length } };
     },
-  );
+  });
 }

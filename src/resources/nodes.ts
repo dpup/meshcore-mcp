@@ -9,39 +9,25 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { resourceReadError } from "../errors.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerJsonResource } from "./register.js";
 
 /** The canonical uri of the nodes/roster resource. */
 export const NODES_URI = "meshcore://nodes";
 
 /** Register the `meshcore://nodes` roster resource on `server`, backed by `service`. */
 export function registerNodes(server: McpServer, service: MeshService): void {
-  server.registerResource(
-    "nodes",
-    NODES_URI,
-    {
+  registerJsonResource(server, {
+    name: "nodes",
+    uri: NODES_URI,
+    metadata: {
       title: "Mesh roster",
       description:
         "The mesh as seen through the home node: the home device plus every " +
         "known contact, each with its advertised role and last-heard time.",
       mimeType: "application/json",
     },
-    async (uri) => {
-      try {
-        const survey = await service.surveyMesh();
-        return {
-          contents: [
-            {
-              uri: uri.href,
-              mimeType: "application/json",
-              text: JSON.stringify(survey, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        resourceReadError(NODES_URI, error, "reading mesh roster");
-      }
-    },
-  );
+    attempted: "reading mesh roster",
+    load: () => service.surveyMesh(),
+  });
 }

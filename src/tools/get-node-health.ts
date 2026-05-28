@@ -10,15 +10,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { toolError } from "../errors.js";
 import { digestNodeHealth, nodeHealthOutput, nodeHealthOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /** Register the `get_node_health` read tool on `server`, backed by `service`. */
 export function registerGetNodeHealth(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "get_node_health",
-    {
+  registerServiceTool(server, service, {
+    name: "get_node_health",
+    config: {
       title: "Get node health",
       description:
         "Consolidated health snapshot for a node: identity, radio, battery, " +
@@ -41,26 +41,17 @@ export function registerGetNodeHealth(server: McpServer, service: MeshService): 
         openWorldHint: true,
       },
     },
-    async ({ node }) => {
-      try {
-        const health = await service.nodeHealth(node);
-        // The service returns raw intent (battery in millivolts only). The
-        // presentation projection adds the interpretive battery `volts`/`percent`
-        // the wire schema carries; the digest renders the same projected data.
-        const output = nodeHealthOutput(health);
-        return {
-          content: [{ type: "text", text: digestNodeHealth(output) }],
-          // The SDK types `structuredContent` as a `Record<string, unknown>`
-          // and validates it against `outputSchema` at runtime; widen the typed
-          // result to that record shape (the schema is the real guarantee).
-          structuredContent: output as unknown as Record<string, unknown>,
-        };
-      } catch (error) {
-        return toolError(error, {
-          node: node ?? "home node",
-          attempted: "reading node health",
-        });
-      }
+    errorContext: ({ node }) => ({
+      node: node ?? "home node",
+      attempted: "reading node health",
+    }),
+    handle: async (svc, { node }) => {
+      const health = await svc.nodeHealth(node);
+      // The service returns raw intent (battery in millivolts only). The
+      // presentation projection adds the interpretive battery `volts`/`percent`
+      // the wire schema carries; the digest renders the same projected data.
+      const output = nodeHealthOutput(health);
+      return { text: digestNodeHealth(output), structured: output };
     },
-  );
+  });
 }

@@ -25,10 +25,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { toolError } from "../errors.js";
 import { adminOutputShape, digestAdmin } from "../format.js";
 import { ADMIN_COMMANDS } from "../service/admin.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /**
  * A one-line `name [tier, scope] — params` summary per command, so the tool's
@@ -76,9 +76,9 @@ function describeField(field: z.ZodTypeAny | undefined): string {
 
 /** Register the `admin` action tool on `server`, backed by `service`. */
 export function registerAdmin(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "admin",
-    {
+  registerServiceTool(server, service, {
+    name: "admin",
+    config: {
       title: "Run an admin command",
       description:
         "Run one enumerated admin command against a node. `node` is the home " +
@@ -107,17 +107,10 @@ export function registerAdmin(server: McpServer, service: MeshService): void {
         openWorldHint: true,
       },
     },
-    async ({ node, command, params, dryRun }) => {
-      try {
-        const result = await service.runAdmin(node, command, params, dryRun ?? false);
-        return {
-          content: [{ type: "text", text: digestAdmin(node, result) }],
-          // Widen to the SDK's record shape; the outputSchema validates it.
-          structuredContent: result as unknown as Record<string, unknown>,
-        };
-      } catch (error) {
-        return toolError(error, { node, attempted: `running admin "${command}"` });
-      }
+    errorContext: ({ node, command }) => ({ node, attempted: `running admin "${command}"` }),
+    handle: async (svc, { node, command, params, dryRun }) => {
+      const result = await svc.runAdmin(node, command, params, dryRun ?? false);
+      return { text: digestAdmin(node, result), structured: result };
     },
-  );
+  });
 }

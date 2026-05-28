@@ -6,15 +6,15 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { toolError } from "../errors.js";
 import { digestMeshSurvey, meshSurveyOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /** Register the `survey_mesh` read tool on `server`, backed by `service`. */
 export function registerSurveyMesh(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "survey_mesh",
-    {
+  registerServiceTool(server, service, {
+    name: "survey_mesh",
+    config: {
       title: "Survey the mesh",
       description:
         "List the home node and every known contact, with each contact's " +
@@ -29,17 +29,10 @@ export function registerSurveyMesh(server: McpServer, service: MeshService): voi
         openWorldHint: true,
       },
     },
-    async (_extra) => {
-      try {
-        const survey = await service.surveyMesh();
-        return {
-          content: [{ type: "text", text: digestMeshSurvey(survey, service.now()) }],
-          // Widen to the SDK's record shape; the outputSchema validates it.
-          structuredContent: survey as unknown as Record<string, unknown>,
-        };
-      } catch (error) {
-        return toolError(error, { attempted: "surveying the mesh" });
-      }
+    errorContext: () => ({ attempted: "surveying the mesh" }),
+    handle: async (svc) => {
+      const survey = await svc.surveyMesh();
+      return { text: digestMeshSurvey(survey, svc.now()), structured: survey };
     },
-  );
+  });
 }

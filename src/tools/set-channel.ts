@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { toolError } from "../errors.js";
 import { digestSetChannel, setChannelOutputShape } from "../format.js";
 import type { MeshService } from "../service/mesh-service.js";
+import { registerServiceTool } from "./register.js";
 
 /**
  * `set_channel` — add or overwrite a channel slot on the connected node. Channel
@@ -13,9 +13,9 @@ import type { MeshService } from "../service/mesh-service.js";
  * never clobbers an existing channel).
  */
 export function registerSetChannel(server: McpServer, service: MeshService): void {
-  server.registerTool(
-    "set_channel",
-    {
+  registerServiceTool(server, service, {
+    name: "set_channel",
+    config: {
       title: "Add or update a channel",
       description:
         "Configure a channel slot on the connected node. Omit `secret` to generate " +
@@ -46,16 +46,10 @@ export function registerSetChannel(server: McpServer, service: MeshService): voi
         openWorldHint: true,
       },
     },
-    async ({ name, secret, index }) => {
-      try {
-        const result = await service.setChannel({ name, secret, index });
-        return {
-          content: [{ type: "text", text: digestSetChannel(result) }],
-          structuredContent: result,
-        };
-      } catch (error) {
-        return toolError(error, { node: "home", attempted: `setting channel "${name}"` });
-      }
+    errorContext: ({ name }) => ({ node: "home", attempted: `setting channel "${name}"` }),
+    handle: async (svc, { name, secret, index }) => {
+      const result = await svc.setChannel({ name, secret, index });
+      return { text: digestSetChannel(result), structured: result };
     },
-  );
+  });
 }
