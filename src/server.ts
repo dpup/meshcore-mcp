@@ -12,6 +12,7 @@ import type { MeshService } from "./service/mesh-service.js";
 import { registerAdmin } from "./tools/admin.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
+import { registerDeleteChannel } from "./tools/delete-channel.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerSetChannel } from "./tools/set-channel.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
@@ -72,6 +73,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerGetRecentTraffic(server, options.service);
     registerSendMessage(server, options.service);
     registerSetChannel(server, options.service);
+    registerDeleteChannel(server, options.service);
     registerAdmin(server, options.service);
 
     registerNodes(server, options.service);

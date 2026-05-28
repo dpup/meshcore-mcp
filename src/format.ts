@@ -238,6 +238,19 @@ export function digestSetChannel(r: { index: number; name: string; secret: strin
   return `Channel "${r.name}" set at slot ${r.index} — key ${r.secret} (share it for others to join).`;
 }
 
+/** Output schema (raw shape) for `delete_channel`. */
+export const deleteChannelOutputShape = {
+  index: z.number().describe("the channel slot that was cleared"),
+  name: z.string().optional().describe("the deleted channel's name, where known"),
+} as const;
+
+/** A one-line digest of a {@link deleteChannelOutputShape} result. */
+export function digestDeleteChannel(r: { index: number; name?: string }): string {
+  return r.name !== undefined
+    ? `Deleted channel "${r.name}" (slot ${r.index}).`
+    : `Deleted channel slot ${r.index}.`;
+}
+
 // ---------------------------------------------------------------------------
 // admin
 // ---------------------------------------------------------------------------

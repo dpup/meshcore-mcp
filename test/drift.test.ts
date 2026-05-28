@@ -74,6 +74,8 @@ const CLIENT_METHODS = [
   "findContactByPublicKeyPrefix",
   "findChannelByName",
   "getChannel",
+  "setChannel",
+  "deleteChannel",
   // remote node reads (remoteHealth) + remote-admin handshake (runAdminRemote)
   "login",
   "getStatus",

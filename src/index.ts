@@ -64,6 +64,7 @@ export { registerSurveyMesh } from "./tools/survey-mesh.js";
 export { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 export { registerSendMessage } from "./tools/send-message.js";
 export { registerSetChannel } from "./tools/set-channel.js";
+export { registerDeleteChannel } from "./tools/delete-channel.js";
 export { registerAdmin } from "./tools/admin.js";
 
 // Resource registrars (wired by createServer; exported for reuse/inspection).

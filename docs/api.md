@@ -160,6 +160,34 @@ client; resources never call the client directly.
 
 `Promise`\<[`Contact`](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md)[]\>
 
+##### deleteChannel()
+
+```ts
+deleteChannel(opts): Promise<{
+  index: number;
+  name?: string;
+}>;
+```
+
+Delete a channel slot, by `index` or by `name` (resolved to its slot).
+Idempotent (an emptied slot stays empty), so it routes through the retry
+path; the tool marks it destructive.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `opts` | \{ `index?`: `number`; `name?`: `string`; \} |
+| `opts.index?` | `number` |
+| `opts.name?` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `index`: `number`;
+  `name?`: `string`;
+\}\>
+
 ##### nodeHealth()
 
 ```ts
@@ -2131,6 +2159,29 @@ function registerContacts(server, service): void;
 ```
 
 Register the `meshcore://contacts` resource on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerDeleteChannel()
+
+```ts
+function registerDeleteChannel(server, service): void;
+```
+
+`delete_channel` — clear a channel slot on the connected node, by `index` or
+by `name`. The companion counterpart to `set_channel`; like it, a home-node
+config operation (its own tool, not an `admin` command).
 
 #### Parameters
 

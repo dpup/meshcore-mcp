@@ -445,6 +445,28 @@ export class MeshService {
   }
 
   /**
+   * Delete a channel slot, by `index` or by `name` (resolved to its slot).
+   * Idempotent (an emptied slot stays empty), so it routes through the retry
+   * path; the tool marks it destructive.
+   */
+  async deleteChannel(opts: { index?: number; name?: string }): Promise<{ index: number; name?: string }> {
+    let index = opts.index;
+    let name = opts.name;
+    if (index === undefined) {
+      if (name === undefined) {
+        throw new MeshCoreError("delete_channel needs an `index` or a `name`");
+      }
+      const match = await this.request(() => this.client.findChannelByName(name as string));
+      if (match === undefined) throw await this.unknownChannelError(`#${name}`);
+      index = match.channelIdx;
+      name = match.name;
+    }
+    const slot = index;
+    await this.request(() => this.client.deleteChannel(slot));
+    return name === undefined ? { index: slot } : { index: slot, name };
+  }
+
+  /**
    * The next free channel slot. The device returns every slot (configured or
    * not) with empty-named ones free, so prefer the first empty-named slot;
    * fall back to one past the highest index when none is empty.

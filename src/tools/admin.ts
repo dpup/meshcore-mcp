@@ -17,7 +17,7 @@ import { z } from "zod";
 
 import { toolError } from "../errors.js";
 import { adminOutputShape, digestAdmin } from "../format.js";
-import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES } from "../service/admin.js";
+import { ADMIN_COMMANDS } from "../service/admin.js";
 import type { MeshService } from "../service/mesh-service.js";
 
 /**
@@ -94,7 +94,11 @@ export function registerAdmin(server: McpServer, service: MeshService): void {
         commandCatalogue(),
       inputSchema: {
         node: z.string(),
-        command: z.enum(ADMIN_COMMAND_NAMES),
+        command: z
+          .string()
+          .describe(
+            "the admin command name (see the catalogue in this description); an unknown name returns the valid list",
+          ),
         params: z.record(z.unknown()).optional(),
         dryRun: z.boolean().optional(),
       },
