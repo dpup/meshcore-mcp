@@ -464,12 +464,15 @@ export class MeshService {
       this.request(() => this.client.getContacts()),
     ]);
 
-    const roster: SurveyContact[] = contacts.map((c) => ({
-      name: c.advName,
-      publicKey: c.publicKey,
-      role: c.type,
-      lastHeardMs: c.lastAdvert.getTime(),
-    }));
+    const roster: SurveyContact[] = contacts
+      .map((c) => ({
+        name: c.advName,
+        publicKey: c.publicKey,
+        role: c.type,
+        lastHeardMs: c.lastAdvert.getTime(),
+      }))
+      // Signal-first: most-recently-heard contacts at the top.
+      .sort((a, b) => b.lastHeardMs - a.lastHeardMs);
 
     return {
       home: { name: self.name, publicKey: self.publicKey, role: self.type },

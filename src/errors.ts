@@ -114,7 +114,13 @@ export function resourceReadError(
  * timestamp is noise in an error line (PRD §4).
  */
 export function formatRelative(elapsedMs: number): string {
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "unknown";
+  if (!Number.isFinite(elapsedMs)) return "unknown";
+  const DAY = 86_400_000;
+  // A small negative elapsed means the node's RTC runs *ahead* of ours — it was
+  // heard ~now, not "unknown" (common: MeshCore RTCs skew minutes/hours forward).
+  // A wildly-off value (far future, or an epoch-0 timestamp → decades) is bogus.
+  if (elapsedMs < 0) return elapsedMs > -2 * DAY ? "just now" : "unknown";
+  if (elapsedMs > 3650 * DAY) return "unknown";
   const secs = Math.floor(elapsedMs / 1000);
   if (secs < 45) return "just now";
   const mins = Math.round(secs / 60);

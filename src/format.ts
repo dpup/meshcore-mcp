@@ -16,6 +16,7 @@
 
 import { z } from "zod";
 
+import { formatRelative as relative } from "./errors.js";
 import type { MeshSurvey, NodeHealth } from "./service/health.js";
 import type { AdminResult, SendMessageResult } from "./service/mesh-service.js";
 import type { TrafficEvent } from "./service/traffic-buffer.js";
@@ -181,8 +182,12 @@ export const recentTrafficOutputShape = {
   count: z.number(),
 } as const;
 
-/** A compact, ordered digest of buffered traffic — one line per event. */
-export function digestRecentTraffic(events: TrafficEvent[]): string {
+/**
+ * A compact, ordered digest of buffered traffic — one line per event. `nowMs`
+ * (the injected-clock now) renders each event's time as a human "ago" phrase
+ * instead of raw ms.
+ */
+export function digestRecentTraffic(events: TrafficEvent[], nowMs: number): string {
   if (events.length === 0) return "No traffic in window.";
   const lines = events.map((e) => {
     const verified = e.decryptVerified ? "verified" : "unverified";
@@ -193,7 +198,7 @@ export function digestRecentTraffic(events: TrafficEvent[]): string {
     if (e.text !== undefined) parts.push(`"${e.text}"`);
     if (e.snr !== undefined) parts.push(`SNR ${e.snr}dB`);
     if (e.rssi !== undefined) parts.push(`RSSI ${e.rssi}dBm`);
-    return `${e.at}ms ${parts.join(" ")}`;
+    return `${relative(nowMs - e.at).padEnd(9)} ${parts.join(" ")}`;
   });
   return [`${events.length} event(s):`, ...lines].join("\n");
 }
@@ -330,17 +335,6 @@ function shortKey(key: string): string {
 }
 
 /** Coarse "ago" phrase for an elapsed-ms span. */
-function relative(elapsedMs: number): string {
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "unknown";
-  const secs = Math.floor(elapsedMs / 1000);
-  if (secs < 45) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 /** Human duration from a seconds count (`1d 2h`, `3h 5m`, `45m`, `12s`). */
 function formatDuration(totalSecs: number): string {
   if (!Number.isFinite(totalSecs) || totalSecs < 0) return "unknown";
