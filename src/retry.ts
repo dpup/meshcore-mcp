@@ -9,10 +9,42 @@
  * a non-idempotent operation retried after a partial wire commit can
  * re-transmit / re-act. For those, only the connection itself should retry
  * (handled by the reconnect daemon in `MeshService`).
+ *
+ * The exponential-backoff *policy* (base/cap + the doubling curve) lives in one
+ * place — {@link backoffDelay} + the {@link DEFAULT_BACKOFF_BASE_MS} /
+ * {@link DEFAULT_BACKOFF_CAP_MS} constants — and is shared by both `withRetry`'s
+ * per-call retries and `MeshService`'s reconnect daemon, so tuning (jitter, cap,
+ * attempt policy) happens once.
  */
 import { MeshCoreError, MeshCoreTimeoutError } from "@dpup/meshcore-ts";
 
 import type { Clock } from "./clock.js";
+
+/** Default base backoff in ms — the first delay; doubles each attempt thereafter. */
+export const DEFAULT_BACKOFF_BASE_MS = 200;
+
+/** Default cap on backoff in ms — the exponential growth saturates here. */
+export const DEFAULT_BACKOFF_CAP_MS = 2000;
+
+/**
+ * The shared exponential-backoff curve: `min(cap, base * 2 ** attempt)` for a
+ * **0-based** `attempt` (attempt 0 ⇒ base, 1 ⇒ 2×base, …, saturating at `cap`).
+ *
+ * The single source of truth for the backoff policy, used by both
+ * {@link withRetry} (per-call retries) and `MeshService`'s reconnect daemon.
+ * Defaults come from {@link DEFAULT_BACKOFF_BASE_MS} / {@link DEFAULT_BACKOFF_CAP_MS}.
+ *
+ * @param attempt - 0-based attempt index (0 yields the base delay).
+ * @param opts - Optional `baseMs` / `capMs` overrides.
+ */
+export function backoffDelay(
+  attempt: number,
+  opts?: { baseMs?: number; capMs?: number },
+): number {
+  const base = opts?.baseMs ?? DEFAULT_BACKOFF_BASE_MS;
+  const cap = opts?.capMs ?? DEFAULT_BACKOFF_CAP_MS;
+  return Math.min(cap, base * 2 ** attempt);
+}
 
 /** Options for {@link withRetry}. */
 export interface RetryOptions {
@@ -20,9 +52,9 @@ export interface RetryOptions {
   clock: Clock;
   /** Total attempts. Default `3` (so up to 2 retries on transient errors). */
   attempts?: number;
-  /** Base backoff in ms; doubles per attempt. Default `200`. */
+  /** Base backoff in ms; doubles per attempt. Default {@link DEFAULT_BACKOFF_BASE_MS}. */
   baseMs?: number;
-  /** Cap on backoff in ms. Default `2000`. */
+  /** Cap on backoff in ms. Default {@link DEFAULT_BACKOFF_CAP_MS}. */
   capMs?: number;
   /** Predicate for whether to retry an error. Defaults to transient device errors. */
   isRetryable?: (err: unknown) => boolean;
@@ -63,8 +95,8 @@ function delay(clock: Clock, ms: number): Promise<void> {
  */
 export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T> {
   const attempts = opts.attempts ?? 3;
-  const base = opts.baseMs ?? 200;
-  const cap = opts.capMs ?? 2000;
+  const base = opts.baseMs ?? DEFAULT_BACKOFF_BASE_MS;
+  const cap = opts.capMs ?? DEFAULT_BACKOFF_CAP_MS;
   const retryable = opts.isRetryable ?? isTransientDeviceError;
 
   let lastError: unknown;
@@ -74,7 +106,8 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions): Pr
     } catch (error) {
       lastError = error;
       if (attempt === attempts || !retryable(error)) throw error;
-      const delayMs = Math.min(cap, base * 2 ** (attempt - 1));
+      // 1-based loop ⇒ 0-based curve: attempt 1 ⇒ base, 2 ⇒ 2×base, …
+      const delayMs = backoffDelay(attempt - 1, { baseMs: base, capMs: cap });
       opts.onRetry?.({ attempt, error, delayMs });
       await delay(opts.clock, delayMs);
     }

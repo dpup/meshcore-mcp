@@ -6,7 +6,13 @@ import { MeshCoreError, MeshCoreTimeoutError } from "@dpup/meshcore-ts";
 import { SimClock } from "@dpup/meshcore-sim";
 import { describe, expect, it } from "vitest";
 
-import { isTransientDeviceError, withRetry } from "../src/retry.js";
+import {
+  backoffDelay,
+  DEFAULT_BACKOFF_BASE_MS,
+  DEFAULT_BACKOFF_CAP_MS,
+  isTransientDeviceError,
+  withRetry,
+} from "../src/retry.js";
 
 /** Tick microtasks so awaited backoff `setTimeout` callbacks chain through. */
 async function tick(n = 64): Promise<void> {
@@ -95,5 +101,32 @@ describe("withRetry", () => {
     // Attempts 1..5 ⇒ 4 retries: 200, 400, 800, 800 (cap).
     expect(delays).toEqual([200, 400, 800, 800]);
     expect(n).toBe(5);
+  });
+});
+
+describe("backoffDelay", () => {
+  it("follows the 0-based exponential curve, saturating at the cap", () => {
+    // Defaults: base 200ms, cap 2000ms. Attempt 0 ⇒ base, doubling thereafter.
+    expect(DEFAULT_BACKOFF_BASE_MS).toBe(200);
+    expect(DEFAULT_BACKOFF_CAP_MS).toBe(2000);
+    expect(backoffDelay(0)).toBe(200);
+    expect(backoffDelay(1)).toBe(400);
+    expect(backoffDelay(2)).toBe(800);
+    expect(backoffDelay(3)).toBe(1600);
+    expect(backoffDelay(4)).toBe(2000); // 3200 capped to 2000
+    expect(backoffDelay(10)).toBe(2000); // stays at the cap
+  });
+
+  it("honours base/cap overrides", () => {
+    expect(backoffDelay(0, { baseMs: 100, capMs: 800 })).toBe(100);
+    expect(backoffDelay(2, { baseMs: 100, capMs: 800 })).toBe(400);
+    expect(backoffDelay(4, { baseMs: 100, capMs: 800 })).toBe(800); // 1600 capped
+  });
+
+  it("matches withRetry's 1-based loop (attempt n ⇒ backoffDelay(n-1))", () => {
+    // The reconnect daemon and withRetry must produce identical delays.
+    expect(backoffDelay(1 - 1)).toBe(200);
+    expect(backoffDelay(2 - 1)).toBe(400);
+    expect(backoffDelay(3 - 1)).toBe(800);
   });
 });

@@ -45,7 +45,7 @@ import { fromHex, MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 import { randomBytes } from "node:crypto";
 
 import type { Clock, TimerHandle } from "../clock.js";
-import { withRetry } from "../retry.js";
+import { backoffDelay, withRetry } from "../retry.js";
 import type { AdminCommandDef, RiskTier, TierAnnotations } from "./admin.js";
 import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
@@ -358,11 +358,15 @@ export class MeshService {
   /**
    * Schedule a reconnect attempt after exp backoff (capped). Re-entrant-safe via
    * `reconnectScheduled`. Stops scheduling new attempts once {@link stop} runs.
+   *
+   * The backoff curve is the shared {@link backoffDelay} policy (the same one
+   * `withRetry` uses), with `reconnectAttempt` as its 0-based index — so the
+   * first schedule waits the base delay and each retry doubles up to the cap.
    */
   private scheduleReconnect(): void {
     if (this.reconnectScheduled || this.stopping) return;
     this.reconnectScheduled = true;
-    const delayMs = Math.min(2000, 200 * 2 ** this.reconnectAttempt);
+    const delayMs = backoffDelay(this.reconnectAttempt);
     this.clock.setTimeout(() => {
       this.reconnectScheduled = false;
       void this.attemptReconnect();
