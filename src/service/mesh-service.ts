@@ -144,7 +144,11 @@ export interface AdminResult {
   via?: "home" | "remote";
   /** The synthesized intent preview — present iff `dryRun`. */
   preview?: string;
-  /** The repeater's CLI reply text — present for a remote exec. */
+  /**
+   * The repeater's CLI reply text — present for a remote exec. For a `secret`
+   * command (its reply echoes a secret) this is a fixed withheld-notice, never
+   * the raw echo.
+   */
   reply?: string;
 }
 
@@ -248,6 +252,13 @@ export interface MeshServiceOptions {
 const DEFAULT_ADMIN_REPLY_TIMEOUT_MS = 15_000;
 
 /**
+ * The fixed notice that stands in for a `secret` command's reply. The repeater
+ * echoes the secret in its CLI reply, and we cannot reliably identify which
+ * substring is the secret, so the whole reply is withheld from the result.
+ */
+const SECRET_REPLY_WITHHELD = "(reply withheld — contains a secret)";
+
+/**
  * The device-facing core: an injected {@link MeshCoreClient} + {@link Clock},
  * a recent-traffic buffer, and (later) the intent-shaped methods the MCP tools
  * call.
@@ -274,6 +285,23 @@ export class MeshService {
   private readonly adminReplyTimeoutMs: number;
   /** Monotonic counter behind the `evt-<n>` ids. */
   private nextEventSeq = 1;
+  /**
+   * Lowercased `pubKeyPrefix`es whose incoming `contactMessage` text must be
+   * dropped before buffering — populated for the duration of a `secret` remote
+   * admin exchange so the repeater's echoed secret never lands in the traffic
+   * buffer / live stream. A Set (not a single field) so concurrent secret
+   * exchanges to different nodes are each handled independently.
+   */
+  private readonly redactRepliesFrom = new Set<string>();
+  /**
+   * In-flight drain-window timers (see {@link runAdminRemote}). After a `secret`
+   * exchange we keep the node's prefix in {@link redactRepliesFrom} for a bounded
+   * window so a *trailing* echo line (a repeater's reply may span multiple
+   * messages, §6) is still redacted, then a clock timer removes it. Handles are
+   * retained here so {@link stop} can cancel any pending drain — a stopped
+   * service leaves no live timers.
+   */
+  private readonly pendingDrainTimers = new Set<TimerHandle>();
   /** Whether {@link start} has run (and subscriptions are live). */
   private started = false;
   /** The bound listeners, retained so {@link stop} can detach exactly these. */
@@ -385,6 +413,11 @@ export class MeshService {
     this.stopping = true;
     this.client.off("disconnected", this.onClientDisconnected);
     this.unsubscribe();
+    // Cancel any in-flight secret-redaction drain timers so a stopped service
+    // leaves no pending clock callbacks, and clear the redaction set.
+    for (const handle of this.pendingDrainTimers) this.clock.clearTimeout(handle);
+    this.pendingDrainTimers.clear();
+    this.redactRepliesFrom.clear();
     this.started = false;
     await this.client.close();
   }
@@ -748,8 +781,23 @@ export class MeshService {
    * default, or the injected credential), send each CLI string as a `CliData`
    * text message, then await the repeater's reply — the next `contactMessage`
    * from that node's `pubKeyPrefix`, correlated by sender + timing. There is no
-   * explicit logout (none exists; sessions expire server-side). The captured
-   * reply is also recorded by the traffic buffer — expected.
+   * explicit logout (none exists; sessions expire server-side).
+   *
+   * For a non-secret command the captured reply is also recorded by the traffic
+   * buffer — expected. For a `secret` command (e.g. `set-admin-password`, whose
+   * reply echoes the secret) the reply is **suppressed**: the node's prefix is
+   * added to {@link redactRepliesFrom} before sending so the buffered event
+   * drops its `text`, and the returned {@link AdminResult.reply} is replaced with
+   * {@link SECRET_REPLY_WITHHELD} so the secret never reaches the consumer.
+   *
+   * A repeater's CLI reply may span **multiple messages** (§6: "long output may
+   * span multiple messages"): `awaitContactReply` resolves on the *first*, but a
+   * trailing echo/confirmation line can arrive afterwards and re-leak the secret.
+   * So the prefix is **not** cleared immediately; instead a clock-scheduled drain
+   * (the same {@link adminReplyTimeoutMs} window we'd already wait for a reply)
+   * keeps that one node's contact-message text redacted for the duration of the
+   * exchange, then removes it. Withholding one node's reply text for that bounded
+   * window during a password change is an accepted, intentional tradeoff.
    */
   private async runAdminRemote(
     node: string,
@@ -768,16 +816,55 @@ export class MeshService {
     const cli = def.remoteCli(params);
     const lines = Array.isArray(cli) ? cli : [cli];
 
-    // Arm the reply listener *before* sending, so a fast reply cannot race past
-    // it. The reply correlates by sender prefix + timing (§6); long output may
-    // span multiple messages, but the first reply is the structured result.
-    const replyPromise = this.awaitContactReply(pubKeyPrefix, this.adminReplyTimeoutMs);
-    for (const line of lines) {
-      await this.client.sendTextMessage(contact, line, TxtType.CliData);
-    }
-    const reply = await replyPromise;
+    // For a secret command the repeater echoes the secret back in its CLI reply.
+    // Mark this node's prefix for redaction *before* sending, so the always-on
+    // `contactMessage` subscription drops the echoed text instead of buffering
+    // it. Cleared on a *drain window* (not immediately) in the `finally` so a
+    // trailing echo line that arrives after the first reply is still redacted.
+    const want = pubKeyPrefix.toLowerCase();
+    if (def.secret) this.redactRepliesFrom.add(want);
+    try {
+      // Arm the reply listener *before* sending, so a fast reply cannot race past
+      // it. The reply correlates by sender prefix + timing (§6); long output may
+      // span multiple messages, but the first reply is the structured result.
+      const replyPromise = this.awaitContactReply(pubKeyPrefix, this.adminReplyTimeoutMs);
+      for (const line of lines) {
+        await this.client.sendTextMessage(contact, line, TxtType.CliData);
+      }
+      const reply = await replyPromise;
 
-    return { command: def.name, tier: def.tier, dryRun: false, via: "remote", reply };
+      // Withhold a secret-bearing reply: we can't know which substring is the
+      // secret, so replace the whole echo with a fixed notice. The structured
+      // output therefore never carries the raw echo.
+      return {
+        command: def.name,
+        tier: def.tier,
+        dryRun: false,
+        via: "remote",
+        reply: def.secret ? SECRET_REPLY_WITHHELD : reply,
+      };
+    } finally {
+      // Don't drop the prefix immediately: a trailing echo line can still arrive
+      // after the first reply (resolved *or* timed out). Keep redacting this one
+      // node's contact-message text for a bounded drain window, then remove it.
+      if (def.secret) this.scheduleRedactionDrain(want);
+    }
+  }
+
+  /**
+   * Stop redacting `prefix`'s `contactMessage` text after a bounded drain window
+   * (one {@link adminReplyTimeoutMs}), giving a multi-message reply's trailing
+   * echo time to arrive and be dropped first. The timer handle is tracked in
+   * {@link pendingDrainTimers} so {@link stop} can cancel a pending drain; it
+   * untracks itself when it fires. Clock-scheduled — never a native timer (§6).
+   */
+  private scheduleRedactionDrain(prefix: string): void {
+    let handle: TimerHandle | undefined;
+    handle = this.clock.setTimeout(() => {
+      this.redactRepliesFrom.delete(prefix);
+      if (handle !== undefined) this.pendingDrainTimers.delete(handle);
+    }, this.adminReplyTimeoutMs);
+    this.pendingDrainTimers.add(handle);
   }
 
   /**
@@ -788,7 +875,8 @@ export class MeshService {
    * The reply is correlated by **sender + timing** (§6): the first
    * `contactMessage` whose `pubKeyPrefix` matches the logged-in node. The
    * captured message is also recorded by the traffic buffer (the service's own
-   * subscription) — that is expected.
+   * subscription) — that is expected, except for a `secret` exchange, whose text
+   * the subscription drops (see {@link redactRepliesFrom}).
    */
   /**
    * Send a direct (contact) message and, when `confirm`, wait for its delivery
@@ -1056,9 +1144,18 @@ export class MeshService {
    * can detach exactly these references.
    */
   private subscribe(): void {
-    this.listen("contactMessage", (m) =>
-      this.record("contact", true, { sender: m.pubKeyPrefix, text: m.text }),
-    );
+    this.listen("contactMessage", (m) => {
+      // While a `secret` remote-admin exchange with this node is in flight, the
+      // repeater's reply echoes the secret — drop the `text` before buffering so
+      // it never reaches the buffer / live stream. The event is otherwise
+      // preserved (kind, sender, timestamp, decryptVerified) for provenance.
+      const redact = this.redactRepliesFrom.has(m.pubKeyPrefix.toLowerCase());
+      this.record(
+        "contact",
+        true,
+        redact ? { sender: m.pubKeyPrefix } : { sender: m.pubKeyPrefix, text: m.text },
+      );
+    });
     this.listen("channelMessage", (m) =>
       this.record("channel", true, { channelIdx: m.channelIdx, text: m.text }),
     );

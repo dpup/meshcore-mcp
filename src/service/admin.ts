@@ -57,6 +57,15 @@ export interface AdminCommandDef<P = unknown> {
   tier: RiskTier;
   /** Companion-protocol-reachable (`home+remote`) or CLI-only (`remote-only`). */
   scope: AdminScope;
+  /**
+   * When `true`, the command's params and/or the repeater's CLI reply carry a
+   * secret (e.g. a password the repeater echoes back). The dispatch layer
+   * ({@link MeshService.runAdmin}) MUST then suppress retention of the reply:
+   * the secret-bearing `contactMessage` is buffered with its `text` omitted, and
+   * the {@link AdminResult.reply} is withheld (a fixed notice replaces the raw
+   * echo). Generic by design — any future command can opt in by setting this.
+   */
+  secret?: boolean;
   /** Zod params schema. An empty object schema when the command takes none. */
   params: z.ZodType<P>;
   /**
@@ -250,6 +259,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     name: "set-admin-password",
     tier: "sensitive",
     scope: "remote-only",
+    secret: true,
     params: z.object({ password: z.string().max(15) }),
     preview: (node) =>
       `Change ${node}'s admin password. ⚠ Sent over the mesh as CliData and echoed in the reply; ` +

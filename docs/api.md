@@ -826,6 +826,19 @@ scope: AdminScope;
 
 Companion-protocol-reachable (`home+remote`) or CLI-only (`remote-only`).
 
+##### secret?
+
+```ts
+optional secret?: boolean;
+```
+
+When `true`, the command's params and/or the repeater's CLI reply carry a
+secret (e.g. a password the repeater echoes back). The dispatch layer
+([MeshService.runAdmin](#runadmin)) MUST then suppress retention of the reply:
+the secret-bearing `contactMessage` is buffered with its `text` omitted, and
+the [AdminResult.reply](#reply) is withheld (a fixed notice replaces the raw
+echo). Generic by design — any future command can opt in by setting this.
+
 ##### tier
 
 ```ts
@@ -946,7 +959,9 @@ The synthesized intent preview — present iff `dryRun`.
 optional reply?: string;
 ```
 
-The repeater's CLI reply text — present for a remote exec.
+The repeater's CLI reply text — present for a remote exec. For a `secret`
+command (its reply echoes a secret) this is a fixed withheld-notice, never
+the raw echo.
 
 ##### tier
 
