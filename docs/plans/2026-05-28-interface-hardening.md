@@ -74,6 +74,26 @@ live stream and likely contributes to the timeouts. It's an upstream
 
 ---
 
+## Friction & delight loop (2026-05-29 →)
+
+Ongoing pass with one bar: **does it reduce friction for new / non-technical
+users, or create delight?** If yes, do it; if it only helps experts/agents at
+the margin, defer. Shipped so far:
+
+| ID | Improvement | commit |
+|---|---|---|
+| H9 | last-heard "unknown" (forward-skewed RTC) → "just now"; bogus → "unknown" | `0f33bf4` |
+| H10 | traffic digest relative times ("2m ago") + relative `since` ("10m","1h") | `0f33bf4` |
+| H11 | survey roster sorted most-recently-heard first (structured + resource) | `0f33bf4` |
+| H12 | timeout hint: "(the node may be offline or out of range)" | `9450fd1` |
+| H13 | survey summary line: "50 contact(s) — 22 heard in the last hour, 39 repeaters, 9 rooms" | `9450fd1` |
+
+Live-confirmed on the real 50-contact mesh. Candidate next items (triage against
+the bar): a rough battery % alongside voltage (delight, but a chemistry
+assumption — weigh carefully); surfacing the confirm window when a DM is
+unconfirmed (more agent- than user-facing); a worked first-run/onboarding recipe
+in the guide.
+
 ## Live re-verification (2026-05-28)
 
 The whole backlog was re-exercised against the real node (SIERRA Elmer) through
