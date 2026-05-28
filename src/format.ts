@@ -162,6 +162,10 @@ export const recentTrafficOutputShape = {
       id: z.string(),
       at: z.number().describe("observed time, ms (epoch in production; virtual-clock ms under the simulator)"),
       kind: z.enum(["contact", "channel", "channelData", "advert", "raw"]),
+      direction: z
+        .enum(["in", "out"])
+        .optional()
+        .describe("'out' for a message this server sent; 'in' (or absent) for received traffic"),
       decryptVerified: z
         .boolean()
         .describe(
@@ -182,7 +186,8 @@ export function digestRecentTraffic(events: TrafficEvent[]): string {
   if (events.length === 0) return "No traffic in window.";
   const lines = events.map((e) => {
     const verified = e.decryptVerified ? "verified" : "unverified";
-    const parts: string[] = [`[${e.kind}/${verified}]`];
+    const arrow = e.direction === "out" ? "→ " : "";
+    const parts: string[] = [`${arrow}[${e.kind}/${verified}]`];
     if (e.sender) parts.push(`from ${shortKey(e.sender)}`);
     if (e.channelIdx !== undefined) parts.push(`ch${e.channelIdx}`);
     if (e.text !== undefined) parts.push(`"${e.text}"`);

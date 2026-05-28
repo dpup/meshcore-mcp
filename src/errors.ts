@@ -67,7 +67,10 @@ export function toolError(error: unknown, ctx: ErrorContext = {}): ToolErrorResu
   } else if (error instanceof MeshCoreDeviceError) {
     body = `unreachable: ${error.message.toLowerCase()}`;
   } else if (error instanceof MeshCoreError) {
-    body = `unreachable: ${error.message}`;
+    // A generic MeshCoreError is usually a *usage* error (unknown contact /
+    // channel, bad admin params) rather than a connectivity failure — surface
+    // its message directly; "unreachable" is reserved for timeout/device errors.
+    body = error.message;
   } else if (error instanceof Error) {
     body = error.message;
   } else {

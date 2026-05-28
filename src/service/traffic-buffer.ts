@@ -48,6 +48,12 @@ export interface TrafficEvent {
   /** What kind of traffic this is — the structural provenance axis. */
   kind: TrafficKind;
   /**
+   * Direction relative to this node: `"in"` for received traffic (the default),
+   * `"out"` for a message **we** transmitted (recorded at send time — the device
+   * serves no sent-message history, so this is our own session record).
+   */
+  direction?: "in" | "out";
+  /**
    * Whether the device decrypt-verified this traffic. Structural, per the
    * provenance table: `true` for `contact`/`channel`, `false` otherwise. Never
    * inferred from content.

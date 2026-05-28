@@ -51,7 +51,9 @@ export function registerSendMessage(server: McpServer, service: MeshService): vo
           structuredContent: result as unknown as Record<string, unknown>,
         };
       } catch (error) {
-        return toolError(error, { node: target, attempted: "sending the message" });
+        // No `node` prefix: the resolution errors already name the target, and a
+        // channel/contact miss is a usage error, not "<target> unreachable".
+        return toolError(error, { attempted: "sending the message" });
       }
     },
   );

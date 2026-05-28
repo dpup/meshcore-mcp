@@ -63,6 +63,18 @@ export class MeshServiceUnknownNodeError extends MeshCoreError {
 }
 
 /**
+ * Thrown by {@link MeshService.sendMessage} when a `#`-prefixed target resolves
+ * to no channel — channel-aware, unlike the generic contact miss (H6). Carries
+ * a hint listing the known channels.
+ */
+export class MeshServiceUnknownChannelError extends MeshCoreError {
+  constructor(target: string, hint: string) {
+    super(`no channel matches "${target}".${hint}`);
+    this.name = "MeshServiceUnknownChannelError";
+  }
+}
+
+/**
  * Thrown by {@link MeshService.runAdmin} when the request is malformed before
  * any device contact: an unknown `command`, params that fail the command's Zod
  * schema, or a scope mismatch (a `remote-only` command targeting the home
@@ -460,12 +472,20 @@ export class MeshService {
    * {@link MeshServiceUnknownNodeError}, which the tool layer formats.
    */
   async sendMessage(target: string, text: string): Promise<SendMessageResult> {
+    const result = await this.transmit(target, text);
+    // H4: record our own send so it surfaces in recent traffic / the live stream.
+    this.recordSent(result);
+    return result;
+  }
+
+  /** Resolve `target` and transmit; returns the structured result (no recording). */
+  private async transmit(target: string, text: string): Promise<SendMessageResult> {
     // An explicit channel reference: `#name` or `#idx`.
     if (target.startsWith("#")) {
       const ref = target.slice(1);
       const channel = await this.resolveChannel(ref);
       if (channel === undefined) {
-        throw new MeshServiceUnknownNodeError(target);
+        throw await this.unknownChannelError(target);
       }
       await this.client.sendChannelTextMessage(channel.channelIdx, text);
       return {
@@ -672,6 +692,19 @@ export class MeshService {
       return this.resolveChannelByIndex(Number(ref));
     }
     return this.request(() => this.client.findChannelByName(ref));
+  }
+
+  /**
+   * Build a channel-aware "not found" error (H6): a `#`-target is unambiguously
+   * a channel, so don't report a contact miss — say so and list the known
+   * channels to choose from.
+   */
+  private async unknownChannelError(target: string): Promise<MeshCoreError> {
+    const known = (await this.channels().catch(() => []))
+      .filter((c) => c.name !== "")
+      .map((c) => `#${c.name}`);
+    const hint = known.length > 0 ? ` Known channels: ${known.join(", ")}.` : "";
+    return new MeshServiceUnknownChannelError(target, hint);
   }
 
   /**
@@ -911,14 +944,32 @@ export class MeshService {
       TrafficEvent,
       "sender" | "channelIdx" | "text" | "rssi" | "snr"
     >,
+    direction: "in" | "out" = "in",
   ): void {
     const event: TrafficEvent = {
       id: `evt-${this.nextEventSeq++}`,
       at: this.clock.now(),
       kind,
       decryptVerified,
+      direction,
       ...fields,
     };
     this.buffer.push(event);
+  }
+
+  /**
+   * Record a message **we** sent into the traffic buffer (H4). The device
+   * exposes no sent-message history, so this is our own session record — it
+   * makes outbound traffic visible in `get_recent_traffic` and the live stream
+   * (it cannot show sends made from *other* clients). Our own plaintext is
+   * trivially "decrypt-verified".
+   */
+  private recordSent(result: SendMessageResult): void {
+    this.record(
+      result.kind,
+      true,
+      { sender: result.publicKey, channelIdx: result.channelIdx, text: result.text },
+      "out",
+    );
   }
 }
