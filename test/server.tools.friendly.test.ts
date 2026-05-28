@@ -5,9 +5,44 @@
 import { channel, contact, defineWorld, node, scenario, traffic } from "@dpup/meshcore-sim";
 import { describe, expect, it } from "vitest";
 
-import { formatRelative } from "../src/index.js";
+import { MeshCoreTimeoutError } from "@dpup/meshcore-ts";
+
+import { formatRelative, toolError } from "../src/index.js";
 import { resolveSince } from "../src/tools/get-recent-traffic.js";
 import { makeSimServer } from "./helpers/sim-server.js";
+
+describe("toolError (H12 — friendly timeout hint)", () => {
+  it("adds a plain-language hint to a timeout", () => {
+    const r = toolError(new MeshCoreTimeoutError(), { node: "Rocky", attempted: "reading node health" });
+    const text = r.content[0]?.text ?? "";
+    expect(text).toMatch(/offline or out of range/);
+    expect(text).toContain("Rocky");
+  });
+});
+
+describe("survey_mesh summary line (H13)", () => {
+  it("leads with a graspable overview (counts + roles)", async () => {
+    const world = defineWorld({
+      homeNodeId: "base",
+      nodes: [
+        node("base", { name: "Base" }),
+        node("rocky", { name: "Rocky", role: "repeater" }),
+        node("cedar", { name: "Cedar", role: "repeater" }),
+        node("hq", { name: "HQ", role: "roomserver" }),
+      ],
+      channels: [channel(0, "public")],
+      contacts: [contact("Rocky", "rocky"), contact("Cedar", "cedar"), contact("HQ", "hq")],
+    });
+    const h = await makeSimServer({ world });
+    const res = (await h.client.callTool({ name: "survey_mesh", arguments: {} })) as {
+      content?: { text?: string }[];
+    };
+    const text = res.content?.[0]?.text ?? "";
+    expect(text).toMatch(/3 contact\(s\) —/); // summary header, not a bare "3 contact(s):"
+    expect(text).toContain("repeaters");
+    await h.cleanup();
+  });
+});
 
 describe("formatRelative (H9 — clock skew)", () => {
   it("treats a small forward skew (negative elapsed) as 'just now', not 'unknown'", () => {

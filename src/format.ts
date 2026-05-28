@@ -143,7 +143,20 @@ export function digestMeshSurvey(s: MeshSurvey, nowMs: number): string {
     lines.push("No contacts.");
     return lines.join("\n");
   }
-  lines.push(`${s.contacts.length} contact(s):`);
+  // A one-line overview so a large roster is graspable at a glance.
+  const HOUR = 3_600_000;
+  const recent = s.contacts.filter((c) => {
+    const e = nowMs - c.lastHeardMs;
+    return e < HOUR && e > -2 * 86_400_000; // heard within the last hour (skew-tolerant)
+  }).length;
+  const repeaters = s.contacts.filter((c) => roleName(c.role) === "repeater").length;
+  const rooms = s.contacts.filter((c) => roleName(c.role) === "room").length;
+  const breakdown = [
+    `${recent} heard in the last hour`,
+    repeaters > 0 ? `${repeaters} repeaters` : "",
+    rooms > 0 ? `${rooms} rooms` : "",
+  ].filter(Boolean).join(", ");
+  lines.push(`${s.contacts.length} contact(s) — ${breakdown}:`);
   const sorted = [...s.contacts].sort((a, b) => b.lastHeardMs - a.lastHeardMs);
   for (const c of sorted) {
     const ago = relative(nowMs - c.lastHeardMs);

@@ -63,7 +63,7 @@ export function toolError(error: unknown, ctx: ErrorContext = {}): ToolErrorResu
   let body: string;
 
   if (error instanceof MeshCoreTimeoutError) {
-    body = `unreachable: no response (timed out)`;
+    body = `unreachable: no response (timed out — the node may be offline or out of range)`;
   } else if (error instanceof MeshCoreDeviceError) {
     body = `unreachable: ${error.message.toLowerCase()}`;
   } else if (error instanceof MeshCoreError) {
