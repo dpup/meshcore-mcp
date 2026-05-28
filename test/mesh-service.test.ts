@@ -10,10 +10,10 @@ import {
   scenario,
   traffic,
 } from "@dpup/meshcore-sim";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MeshService } from "../src/index.js";
-import type { Clock } from "../src/index.js";
+import type { Clock, Duration, TimerHandle } from "../src/index.js";
 
 /**
  * The M1 proof: drive a real `MeshCoreClient` over a sim-backed connection and a
@@ -189,6 +189,56 @@ describe("MeshService over a sim-backed MeshCoreClient", () => {
     expect(service.recentTraffic().map((e) => e.text)).toEqual(["early", "late"]);
     // Only the event stamped at/after 5s.
     expect(service.recentTraffic(5_000).map((e) => e.text)).toEqual(["late"]);
+
+    await service.stop();
+  });
+});
+
+describe("sendMessage confirm: ack-wait window honours a reported estTimeout of 0", () => {
+  /** A Clock that delegates to a SimClock but records every setTimeout delay (ms). */
+  class RecordingClock implements Clock {
+    readonly delays: number[] = [];
+    constructor(private readonly inner: SimClock) {}
+    now(): number {
+      return this.inner.now();
+    }
+    setTimeout(callback: () => void, delay: Duration): TimerHandle {
+      this.delays.push(typeof delay === "number" ? delay : Number.NaN);
+      return this.inner.setTimeout(callback, delay);
+    }
+    clearTimeout(handle: TimerHandle): void {
+      this.inner.clearTimeout(handle);
+    }
+  }
+
+  it("uses a 2000ms window (0 + 2000) when the device reports estTimeout: 0, not the 4000 fallback", async () => {
+    const world = buildWorld();
+    const sim = new SimClock();
+    const clock = new RecordingClock(sim);
+    const conn = new SimConnection({ world, clock: sim });
+    const client = new MeshCoreClient(conn.asConnection(), { autoSync: true });
+
+    const service = new MeshService(client, clock);
+    await service.start();
+
+    // The `??` fix: a legit reported estTimeout of 0 must survive (0 + 2000 =
+    // 2000ms window). With the old `|| 4000` it would have been re-inflated to
+    // 4000 → a 6000ms window. No ack ever arrives, so the timer fires and the
+    // send resolves `delivered: false`.
+    vi.spyOn(client, "sendTextMessage").mockResolvedValue({
+      result: 0,
+      expectedAckCrc: 0xabcd,
+      estTimeout: 0,
+    });
+
+    const sendP = service.sendMessage("Rocky", "ping", { confirm: true });
+    await flush();
+    sim.advance("2s"); // fire the scheduled timer
+    const result = await sendP;
+
+    expect(result.delivered).toBe(false);
+    expect(clock.delays).toContain(2000);
+    expect(clock.delays).not.toContain(6000);
 
     await service.stop();
   });

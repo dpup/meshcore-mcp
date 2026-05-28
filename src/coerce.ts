@@ -58,8 +58,10 @@ export const freqMhz = z
 
 /**
  * LoRa **bandwidth in kHz**. Tolerates the device-native Hz form (`62500` →
- * `62.5`). LoRa bandwidths run 7.8–500 kHz; the split at 1000 cleanly separates
- * a kHz value (≤ 500) from an Hz value (≥ 7800).
+ * `62.5`). Typical sub-GHz LoRa bandwidths run 7.8–500 kHz, but wideband /
+ * 2.4 GHz-band configs (SX128x) go higher — e.g. 812 kHz — so the bound is
+ * ≤ 1000 kHz, not 500. The split at 1000 cleanly separates a kHz value
+ * (≤ 500 on sub-GHz) from a device-native Hz value (≥ 7800).
  */
 export const bwKhz = z
   .preprocess((v) => {
@@ -67,7 +69,9 @@ export const bwKhz = z
     if (n === undefined) return v;
     return n >= 1000 ? n / 1000 : n; // Hz → kHz
   }, z.number().positive().max(1000))
-  .describe("bandwidth in kHz (e.g. 62.5, 125, 250, 500); Hz (62500) also accepted");
+  .describe(
+    "bandwidth in kHz (sub-GHz: 62.5, 125, 250, 500; 2.4GHz/SX128x goes higher, up to 1000); Hz (62500) also accepted",
+  );
 
 /** Spreading factor 5–12. Accepts `"SF7"` / `"7"` / `7`. */
 export const sf = z

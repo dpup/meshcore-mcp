@@ -60,6 +60,31 @@ describe("trace_path", () => {
     await h.cleanup();
   });
 
+  it("reports hopCount from the hops actually returned, not the frame's pathLen", async () => {
+    // A truncated/partial frame can declare a larger pathLen than it carries
+    // per-hop SNRs; hopCount must follow the reported hops so the structured
+    // count and the hops array can never disagree (the digest can't say
+    // "3 hop(s)" while listing 2).
+    const h = await makeSimServer({ world: world() });
+    const trace: TraceData = {
+      pathLen: 3,
+      flags: 0,
+      tag: 1,
+      authCode: 0,
+      pathHashes: "235f",
+      pathSnrs: [-7.5, -10],
+      lastSnr: -10,
+    };
+    vi.spyOn(h.meshClient, "tracePath").mockResolvedValue(trace);
+
+    const res = (await h.client.callTool({ name: "trace_path", arguments: { path: "235f" } })) as ToolResult;
+    const out = res.structuredContent as { hopCount: number; hops: { hash: string; snr: number }[] };
+    expect(out.hops).toHaveLength(2);
+    expect(out.hopCount).toBe(2);
+    expect(out.hopCount).toBe(out.hops.length);
+    await h.cleanup();
+  });
+
   it("errors clearly when neither path nor node is given", async () => {
     const h = await makeSimServer({ world: world() });
     const res = (await h.client.callTool({ name: "trace_path", arguments: {} })) as ToolResult;

@@ -508,8 +508,8 @@ MeshCoreError.constructor
 
 The production [Clock](#clock): real wall-clock time and native timers.
 
-Reads time from `Date.now()` and schedules on `globalThis.setTimeout` /
-`globalThis.setInterval`. Native timer objects are wrapped into the opaque
+Reads time from `Date.now()` and schedules on `globalThis.setTimeout`.
+Native timer objects are wrapped into the opaque
 `{ __timerId }` handle shape via an internal id→timer map, so callers never
 see a platform-specific timer value and the handle is identical to the one
 `SimClock` hands back.
@@ -539,28 +539,6 @@ new SystemClock(): SystemClock;
 [`SystemClock`](#systemclock)
 
 #### Methods
-
-##### clearInterval()
-
-```ts
-clearInterval(handle): void;
-```
-
-Cancel a repeating timer. No-op for unknown / already-cancelled handles.
-
-###### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `handle` | [`TimerHandle`](#timerhandle) |
-
-###### Returns
-
-`void`
-
-###### Implementation of
-
-[`Clock`](#clock).[`clearInterval`](#clearinterval-1)
 
 ##### clearTimeout()
 
@@ -600,29 +578,6 @@ Current wall-clock time in milliseconds since the Unix epoch.
 
 [`Clock`](#clock).[`now`](#now-2)
 
-##### setInterval()
-
-```ts
-setInterval(callback, interval): TimerHandle;
-```
-
-Schedule a repeating callback every `interval`.
-
-###### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `callback` | () => `void` |
-| `interval` | [`Duration`](#duration) |
-
-###### Returns
-
-[`TimerHandle`](#timerhandle)
-
-###### Implementation of
-
-[`Clock`](#clock).[`setInterval`](#setinterval-1)
-
 ##### setTimeout()
 
 ```ts
@@ -661,7 +616,7 @@ oldest. Events are stored — and returned — oldest-first, in arrival order.
 ```ts
 const buf = new TrafficBuffer(500);
 buf.push(evt);
-buf.recent(20);       // up to 20 most-recent, oldest→newest
+buf.recent();         // every retained event, oldest→newest
 buf.since(cutoffMs);  // everything observed at/after cutoffMs
 ```
 
@@ -683,35 +638,7 @@ new TrafficBuffer(capacity?): TrafficBuffer;
 
 [`TrafficBuffer`](#trafficbuffer)
 
-#### Accessors
-
-##### size
-
-###### Get Signature
-
-```ts
-get size(): number;
-```
-
-Number of currently retained events.
-
-###### Returns
-
-`number`
-
 #### Methods
-
-##### clear()
-
-```ts
-clear(): void;
-```
-
-Drop all retained events.
-
-###### Returns
-
-`void`
 
 ##### onPush()
 
@@ -755,17 +682,11 @@ Append an event, evicting the oldest if at capacity, then fire the
 ##### recent()
 
 ```ts
-recent(limit?): TrafficEvent[];
+recent(): TrafficEvent[];
 ```
 
-The most-recent events, oldest→newest. With no `limit`, returns every
-retained event; otherwise the last `limit` events.
-
-###### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `limit?` | `number` |
+Every retained event, oldest→newest — a fresh copy the caller may mutate
+freely.
 
 ###### Returns
 
@@ -1015,24 +936,6 @@ adapter required.
 
 #### Methods
 
-##### clearInterval()
-
-```ts
-clearInterval(handle): void;
-```
-
-Cancel a repeating timer. No-op for unknown / already-cancelled handles.
-
-###### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `handle` | [`TimerHandle`](#timerhandle) |
-
-###### Returns
-
-`void`
-
 ##### clearTimeout()
 
 ```ts
@@ -1062,27 +965,6 @@ Virtual (or wall-clock) milliseconds since the clock's epoch.
 ###### Returns
 
 `number`
-
-##### setInterval()
-
-```ts
-setInterval(callback, interval): TimerHandle;
-```
-
-Schedule `callback` to run repeatedly every `interval`.
-
-###### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `callback` | () => `void` |
-| `interval` | [`Duration`](#duration) |
-
-###### Returns
-
-[`TimerHandle`](#timerhandle)
-
-A handle that can be passed to [clearInterval](#clearinterval-1).
 
 ##### setTimeout()
 
@@ -1982,9 +1864,8 @@ present for completeness; queries are surfaced via `get_node_health`, not
 type TimerHandle = object;
 ```
 
-An opaque handle returned by [Clock.setTimeout](#settimeout-1) /
-[Clock.setInterval](#setinterval-1). Pass it to [Clock.clearTimeout](#cleartimeout-1) /
-[Clock.clearInterval](#clearinterval-1) to cancel the timer.
+An opaque handle returned by [Clock.setTimeout](#settimeout-1). Pass it to
+[Clock.clearTimeout](#cleartimeout-1) to cancel the timer.
 
 The shape is intentionally opaque — callers must not inspect its fields — and
 is identical to `@dpup/meshcore-sim`'s `TimerHandle` so the two clocks are

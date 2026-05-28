@@ -196,7 +196,7 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     scope: "home+remote",
     params: NO_PARAMS,
     preview: (node) =>
-      `Set ${node}'s clock to the controller's time (${new Date().toISOString()}). No-op if already in sync.`,
+      `Set ${node}'s clock to the controller's time. No-op if already in sync.`,
     home: (client) => client.syncDeviceTime(),
     remoteCli: () => "clock sync",
   }),

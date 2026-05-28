@@ -84,7 +84,7 @@ export const DEFAULT_TRAFFIC_CAPACITY = 500;
  * ```ts
  * const buf = new TrafficBuffer(500);
  * buf.push(evt);
- * buf.recent(20);       // up to 20 most-recent, oldest→newest
+ * buf.recent();         // every retained event, oldest→newest
  * buf.since(cutoffMs);  // everything observed at/after cutoffMs
  * ```
  */
@@ -130,23 +130,11 @@ export class TrafficBuffer {
   }
 
   /**
-   * The most-recent events, oldest→newest. With no `limit`, returns every
-   * retained event; otherwise the last `limit` events.
+   * Every retained event, oldest→newest — a fresh copy the caller may mutate
+   * freely.
    */
-  recent(limit?: number): TrafficEvent[] {
-    if (limit === undefined) return [...this.events];
-    if (limit <= 0) return [];
-    return this.events.slice(-limit);
-  }
-
-  /** Drop all retained events. */
-  clear(): void {
-    this.events.length = 0;
-  }
-
-  /** Number of currently retained events. */
-  get size(): number {
-    return this.events.length;
+  recent(): TrafficEvent[] {
+    return [...this.events];
   }
 
   /**

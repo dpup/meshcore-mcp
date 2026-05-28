@@ -2,18 +2,18 @@
  * The injectable clock — meshcore-mcp's time seam (PRD §6 design rule).
  *
  * Nothing below the entrypoint reads `Date.now()` or schedules a native
- * `setTimeout`/`setInterval` directly. Everything takes time from a
+ * `setTimeout` directly. Everything takes time from a
  * {@link Clock}: {@link SystemClock} in production (real wall-clock + native
  * timers), `SimClock` from `@dpup/meshcore-sim` in tests (a deterministic
  * virtual clock you advance by hand). That single injection is what makes the
  * time-domain behaviour — recent-traffic windows, debounce, ordering — testable
  * without sleeping real seconds.
  *
- * The interface is **owned here but satisfied structurally by the sim**: its
- * shape is a byte-for-byte mirror of `@dpup/meshcore-sim`'s `Clock`
- * (`now`/`setTimeout`/`clearTimeout`/`setInterval`/`clearInterval`, the same
- * {@link Duration} and {@link TimerHandle} types), so a `SimClock` is assignable
- * to a `Clock` with no adapter. The test suite asserts that compatibility
+ * The interface is **owned here but satisfied structurally by the sim**: it is
+ * a strict subset of `@dpup/meshcore-sim`'s `Clock`
+ * (`now`/`setTimeout`/`clearTimeout`, the same {@link Duration} and
+ * {@link TimerHandle} types), so a `SimClock` is assignable to a `Clock` with no
+ * adapter. The test suite asserts that compatibility
  * (`const _c: Clock = new SimClock()`).
  */
 
@@ -81,9 +81,8 @@ export function toMillis(d: Duration): number {
 // ---------------------------------------------------------------------------
 
 /**
- * An opaque handle returned by {@link Clock.setTimeout} /
- * {@link Clock.setInterval}. Pass it to {@link Clock.clearTimeout} /
- * {@link Clock.clearInterval} to cancel the timer.
+ * An opaque handle returned by {@link Clock.setTimeout}. Pass it to
+ * {@link Clock.clearTimeout} to cancel the timer.
  *
  * The shape is intentionally opaque — callers must not inspect its fields — and
  * is identical to `@dpup/meshcore-sim`'s `TimerHandle` so the two clocks are
@@ -113,16 +112,6 @@ export interface Clock {
 
   /** Cancel a pending one-shot timer. No-op for unknown / already-fired handles. */
   clearTimeout(handle: TimerHandle): void;
-
-  /**
-   * Schedule `callback` to run repeatedly every `interval`.
-   *
-   * @returns A handle that can be passed to {@link clearInterval}.
-   */
-  setInterval(callback: () => void, interval: Duration): TimerHandle;
-
-  /** Cancel a repeating timer. No-op for unknown / already-cancelled handles. */
-  clearInterval(handle: TimerHandle): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,8 +121,8 @@ export interface Clock {
 /**
  * The production {@link Clock}: real wall-clock time and native timers.
  *
- * Reads time from `Date.now()` and schedules on `globalThis.setTimeout` /
- * `globalThis.setInterval`. Native timer objects are wrapped into the opaque
+ * Reads time from `Date.now()` and schedules on `globalThis.setTimeout`.
+ * Native timer objects are wrapped into the opaque
  * `{ __timerId }` handle shape via an internal id→timer map, so callers never
  * see a platform-specific timer value and the handle is identical to the one
  * `SimClock` hands back.
@@ -178,23 +167,6 @@ export class SystemClock implements Clock {
     const timer = this.timers.get(handle.__timerId);
     if (timer !== undefined) {
       globalThis.clearTimeout(timer);
-      this.timers.delete(handle.__timerId);
-    }
-  }
-
-  /** Schedule a repeating callback every `interval`. */
-  setInterval(callback: () => void, interval: Duration): TimerHandle {
-    const id = this.nextId++;
-    const timer = globalThis.setInterval(callback, toMillis(interval));
-    this.timers.set(id, timer);
-    return { __timerId: id };
-  }
-
-  /** Cancel a repeating timer. No-op for unknown / already-cancelled handles. */
-  clearInterval(handle: TimerHandle): void {
-    const timer = this.timers.get(handle.__timerId);
-    if (timer !== undefined) {
-      globalThis.clearInterval(timer);
       this.timers.delete(handle.__timerId);
     }
   }

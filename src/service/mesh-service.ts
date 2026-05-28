@@ -225,7 +225,10 @@ function parseTracePath(path: string): Uint8Array {
 function toTraceResult(trace: TraceData): TraceResult {
   const hashes = trace.pathHashes.match(/.{2}/g) ?? [];
   const hops: TraceHop[] = trace.pathSnrs.map((snr, i) => ({ hash: hashes[i] ?? "", snr }));
-  return { completed: true, hopCount: trace.pathLen, hops, lastSnr: trace.lastSnr };
+  // `hopCount` is the number of hops we can actually report (one per pathSnr),
+  // not the frame's declared `pathLen`: a truncated/partial frame can carry a
+  // larger pathLen than it has per-hop SNRs, and the two must never disagree.
+  return { completed: true, hopCount: hops.length, hops, lastSnr: trace.lastSnr };
 }
 
 /**
@@ -954,7 +957,7 @@ export class MeshService {
       want = sent.expectedAckCrc;
       const already = acks.find((p) => p.ackCode === want);
       if (already) return { route, delivered: true, roundTripMs: already.roundTrip };
-      const timeoutMs = Math.min((sent.estTimeout || 4000) + 2000, 30_000);
+      const timeoutMs = Math.min((sent.estTimeout ?? 4000) + 2000, 30_000);
       const rt = await new Promise<number | null>((resolve) => {
         resolveRt = resolve;
         timer = this.clock.setTimeout(() => resolve(null), timeoutMs);
