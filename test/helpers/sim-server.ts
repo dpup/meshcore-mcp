@@ -64,6 +64,8 @@ export interface SimServer {
   clock: SimClock;
   /** The simulated connection backing the `MeshCoreClient`. */
   sim: SimConnection;
+  /** The `MeshCoreClient` driven by the sim — `vi.spyOn` it to inject device errors. */
+  meshClient: MeshCoreClient;
   /**
    * Advance the virtual clock by `by` (a `Duration`), stepping in fine
    * increments with a bounded microtask flush between each so `autoSync` traffic
@@ -148,6 +150,7 @@ export async function makeSimServer(opts: MakeSimServerOptions): Promise<SimServ
     service,
     clock,
     sim,
+    meshClient,
     advance,
     flush: flushMicrotasks,
     cleanup,

@@ -1276,6 +1276,18 @@ optional volts?: number;
 
 `milliVolts / 1000`, where the source reported millivolts.
 
+##### degraded?
+
+```ts
+optional degraded?: string[];
+```
+
+Names of sub-calls that failed after retries — present only when the
+snapshot is partial (some fields will be absent). `reachable` stays `true`
+because the node *did* answer the identification call; only some follow-up
+reads timed out. Use this to disambiguate "the field genuinely isn't
+available" from "we couldn't read it this time."
+
 ##### deviceTimeMs?
 
 ```ts

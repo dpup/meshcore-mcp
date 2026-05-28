@@ -106,6 +106,15 @@ export interface NodeHealth {
    * an agent can tell whether the node is reporting sensors.
    */
   telemetryBytes?: number;
+
+  /**
+   * Names of sub-calls that failed after retries — present only when the
+   * snapshot is partial (some fields will be absent). `reachable` stays `true`
+   * because the node *did* answer the identification call; only some follow-up
+   * reads timed out. Use this to disambiguate "the field genuinely isn't
+   * available" from "we couldn't read it this time."
+   */
+  degraded?: string[];
 }
 
 /** One contact in a {@link MeshSurvey} roster. */

@@ -43,6 +43,7 @@ import { MeshCoreError, TxtType } from "@dpup/meshcore-ts";
 import { randomBytes } from "node:crypto";
 
 import type { Clock, TimerHandle } from "../clock.js";
+import { withRetry } from "../retry.js";
 import type { AdminCommandDef, RiskTier } from "./admin.js";
 import { ADMIN_COMMANDS } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
@@ -189,6 +190,11 @@ export class MeshService {
     event: keyof MeshCoreEvents & string;
     fn: (...args: never[]) => void;
   }> = [];
+  /** Reconnect-daemon state — see {@link onClientDisconnected}. */
+  private reconnectAttempt = 0;
+  private reconnectScheduled = false;
+  private stopping = false;
+  private readonly onClientDisconnected: () => void;
 
   /**
    * @param client - An already-built {@link MeshCoreClient} (real or sim-backed).
@@ -207,6 +213,61 @@ export class MeshService {
     this.credentials = options.credentials;
     this.adminReplyTimeoutMs =
       options.adminReplyTimeoutMs ?? DEFAULT_ADMIN_REPLY_TIMEOUT_MS;
+    this.onClientDisconnected = () => {
+      if (!this.stopping) this.scheduleReconnect();
+    };
+  }
+
+  /**
+   * Wrap an idempotent device call in bounded retry + exp backoff (clock-driven).
+   * **Use only for idempotent operations** — reads, `set-*` config, `set_channel`,
+   * `login`/`getStatus`/`getTelemetry`. Don't wrap `sendTextMessage`, `reboot`,
+   * `sendAdvert` — those non-idempotent ops surface failures cleanly; the
+   * reconnect daemon below brings the link back across a node reboot or WiFi blip.
+   */
+  private request<T>(fn: () => Promise<T>): Promise<T> {
+    return withRetry(fn, {
+      clock: this.clock,
+      onRetry: ({ attempt, delayMs, error }) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(
+          `meshcore-mcp: device retry (attempt ${attempt + 1} after ${delayMs}ms): ${msg}\n`,
+        );
+      },
+    });
+  }
+
+  /**
+   * Schedule a reconnect attempt after exp backoff (capped). Re-entrant-safe via
+   * `reconnectScheduled`. Stops scheduling new attempts once {@link stop} runs.
+   */
+  private scheduleReconnect(): void {
+    if (this.reconnectScheduled || this.stopping) return;
+    this.reconnectScheduled = true;
+    const delayMs = Math.min(2000, 200 * 2 ** this.reconnectAttempt);
+    this.clock.setTimeout(() => {
+      this.reconnectScheduled = false;
+      void this.attemptReconnect();
+    }, delayMs);
+  }
+
+  /** One reconnect attempt; on failure, reschedule with growing backoff. */
+  private async attemptReconnect(): Promise<void> {
+    if (this.stopping) return;
+    this.reconnectAttempt += 1;
+    process.stderr.write(
+      `meshcore-mcp: device disconnected; reconnect attempt ${this.reconnectAttempt}…\n`,
+    );
+    try {
+      await this.client.connect();
+      this.reconnectAttempt = 0;
+      process.stderr.write("meshcore-mcp: device reconnected.\n");
+    } catch (e) {
+      process.stderr.write(
+        `meshcore-mcp: reconnect failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+      this.scheduleReconnect();
+    }
   }
 
   /**
@@ -216,6 +277,10 @@ export class MeshService {
   async start(): Promise<void> {
     if (this.started) return;
     this.subscribe();
+    // Hook the auto-reconnect daemon onto the client's lifecycle. On
+    // `disconnected` (node reboot, WiFi blip), schedule reconnect with backoff;
+    // idempotent reads bridge over via the retry path.
+    this.client.on("disconnected", this.onClientDisconnected);
     this.started = true;
     await this.client.connect();
   }
@@ -226,6 +291,8 @@ export class MeshService {
    */
   async stop(): Promise<void> {
     if (!this.started) return;
+    this.stopping = true;
+    this.client.off("disconnected", this.onClientDisconnected);
     this.unsubscribe();
     this.started = false;
     await this.client.close();
@@ -257,7 +324,7 @@ export class MeshService {
    * client; resources never call the client directly.
    */
   async contacts(): Promise<Contact[]> {
-    return this.client.getContacts();
+    return this.request(() => this.client.getContacts());
   }
 
   /**
@@ -285,7 +352,7 @@ export class MeshService {
    * @param node - A contact name or hex public-key prefix. Omitted ⇒ home.
    */
   async nodeHealth(node?: string): Promise<NodeHealth> {
-    const self = await this.client.getSelfInfo();
+    const self = await this.request(() => this.client.getSelfInfo());
 
     if (node === undefined || this.isHome(node, self)) {
       return this.homeHealth(self);
@@ -315,8 +382,8 @@ export class MeshService {
    */
   async surveyMesh(): Promise<MeshSurvey> {
     const [self, contacts] = await Promise.all([
-      this.client.getSelfInfo(),
-      this.client.getContacts(),
+      this.request(() => this.client.getSelfInfo()),
+      this.request(() => this.client.getContacts()),
     ]);
 
     const roster: SurveyContact[] = contacts.map((c) => ({
@@ -345,7 +412,7 @@ export class MeshService {
 
   /** The device's configured channels (slot index, name, hex secret). */
   async channels(): Promise<Channel[]> {
-    return this.client.getChannels();
+    return this.request(() => this.client.getChannels());
   }
 
   /**
@@ -361,7 +428,7 @@ export class MeshService {
   }): Promise<{ index: number; name: string; secret: string }> {
     const secret = opts.secret ?? randomBytes(16).toString("hex");
     const index = opts.index ?? (await this.nextFreeChannelIndex());
-    await this.client.setChannel(index, opts.name, secret);
+    await this.request(() => this.client.setChannel(index, opts.name, secret));
     return { index, name: opts.name, secret };
   }
 
@@ -371,7 +438,7 @@ export class MeshService {
    * fall back to one past the highest index when none is empty.
    */
   private async nextFreeChannelIndex(): Promise<number> {
-    const channels = await this.client.getChannels();
+    const channels = await this.request(() => this.client.getChannels());
     const empty = channels.find((c) => c.name === "");
     if (empty !== undefined) return empty.channelIdx;
     return channels.reduce((max, c) => Math.max(max, c.channelIdx), -1) + 1;
@@ -502,7 +569,7 @@ export class MeshService {
       };
     }
 
-    const self = await this.client.getSelfInfo();
+    const self = await this.request(() => this.client.getSelfInfo());
     const isHome = this.isHome(node, self);
 
     // Home dispatch: only when the node is home, the command is home-reachable,
@@ -543,7 +610,7 @@ export class MeshService {
     }
 
     const password = this.credentials?.(node) ?? "";
-    const { pubKeyPrefix } = await this.client.login(contact, password);
+    const { pubKeyPrefix } = await this.request(() => this.client.login(contact, password));
 
     const cli = def.remoteCli(params);
     const lines = Array.isArray(cli) ? cli : [cli];
@@ -604,7 +671,7 @@ export class MeshService {
     if (/^\d+$/.test(ref)) {
       return this.resolveChannelByIndex(Number(ref));
     }
-    return this.client.findChannelByName(ref);
+    return this.request(() => this.client.findChannelByName(ref));
   }
 
   /**
@@ -636,10 +703,10 @@ export class MeshService {
    * public-key prefix. Returns `undefined` when neither matches.
    */
   private async resolveContact(node: string): Promise<Contact | undefined> {
-    const byName = await this.client.findContactByName(node);
+    const byName = await this.request(() => this.client.findContactByName(node));
     if (byName !== undefined) return byName;
     if (/^[0-9a-f]+$/i.test(node)) {
-      return this.client.findContactByPublicKeyPrefix(node.toLowerCase());
+      return this.request(() => this.client.findContactByPublicKeyPrefix(node.toLowerCase()));
     }
     return undefined;
   }
@@ -651,47 +718,58 @@ export class MeshService {
    * stays absent rather than synthesized.
    */
   private async homeHealth(self: SelfInfo): Promise<NodeHealth> {
-    const [battery, deviceTime, core, radio, packets] = await Promise.all([
-      this.client.getBatteryVoltage(),
-      this.client.getDeviceTime(),
-      this.client.getStatsCore(),
-      this.client.getStatsRadio(),
-      this.client.getStatsPackets(),
+    // Gather sub-results independently with bounded retry. A single sub-call
+    // timeout no longer fails the whole snapshot — we degrade gracefully and
+    // list what we couldn't read in `degraded` (PRD §4 "every result is
+    // digested; every error is actionable").
+    const [batteryR, deviceTimeR, coreR, radioR, packetsR] = await Promise.allSettled([
+      this.request(() => this.client.getBatteryVoltage()),
+      this.request(() => this.client.getDeviceTime()),
+      this.request(() => this.client.getStatsCore()),
+      this.request(() => this.client.getStatsRadio()),
+      this.request(() => this.client.getStatsPackets()),
     ]);
+
+    const degraded: string[] = [];
+    const battery = batteryR.status === "fulfilled" ? batteryR.value : (degraded.push("battery"), undefined);
+    const deviceTime = deviceTimeR.status === "fulfilled" ? deviceTimeR.value : (degraded.push("deviceTime"), undefined);
+    const core = coreR.status === "fulfilled" ? coreR.value : (degraded.push("statsCore"), undefined);
+    const radioStats = radioR.status === "fulfilled" ? radioR.value : (degraded.push("statsRadio"), undefined);
+    const packets = packetsR.status === "fulfilled" ? packetsR.value : (degraded.push("statsPackets"), undefined);
 
     const stats: NonNullable<NodeHealth["stats"]> = {};
     let uptimeSecs: number | undefined;
     let txQueueLen: number | undefined;
-    let batteryMilliVolts = battery.milliVolts;
+    let batteryMilliVolts: number | undefined = battery?.milliVolts;
 
-    for (const s of [core, radio, packets] as Stats[]) {
-      if (s.type === "core") {
-        uptimeSecs = s.uptimeSecs;
-        txQueueLen = s.queueLen;
-        if (s.batteryMilliVolts > 0) batteryMilliVolts = s.batteryMilliVolts;
-      } else if (s.type === "radio") {
-        stats.noiseFloor = s.noiseFloor;
-        stats.lastRssi = s.lastRssi;
-        stats.lastSnr = s.lastSnr;
-      } else {
-        stats.packetsReceived = s.recv;
-        stats.packetsSent = s.sent;
-        stats.recvFlood = s.recvFlood;
-        stats.recvDirect = s.recvDirect;
-        stats.sentFlood = s.sentFlood;
-        stats.sentDirect = s.sentDirect;
-      }
+    if (core?.type === "core") {
+      uptimeSecs = core.uptimeSecs;
+      txQueueLen = core.queueLen;
+      if (core.batteryMilliVolts > 0) batteryMilliVolts = core.batteryMilliVolts;
+    }
+    if (radioStats?.type === "radio") {
+      stats.noiseFloor = radioStats.noiseFloor;
+      stats.lastRssi = radioStats.lastRssi;
+      stats.lastSnr = radioStats.lastSnr;
+    }
+    if (packets?.type === "packets") {
+      stats.packetsReceived = packets.recv;
+      stats.packetsSent = packets.sent;
+      stats.recvFlood = packets.recvFlood;
+      stats.recvDirect = packets.recvDirect;
+      stats.sentFlood = packets.sentFlood;
+      stats.sentDirect = packets.sentDirect;
     }
 
-    return {
+    // getSelfInfo succeeded above, so the node IS reachable. `lastHeardMs` falls
+    // back to "now" when the device clock is unavailable — we just spoke to it.
+    const result: NodeHealth = {
       kind: "home",
       node: self.name,
       publicKey: self.publicKey,
       role: self.type,
       reachable: true,
-      lastHeardMs: deviceTime.getTime(),
-      deviceTimeMs: deviceTime.getTime(),
-      battery: { milliVolts: batteryMilliVolts, volts: batteryMilliVolts / 1000 },
+      lastHeardMs: deviceTime?.getTime() ?? this.clock.now(),
       radio: {
         // Device wire units are kHz (freq) and Hz (bw); normalise to the
         // surface units MHz / kHz so read and write speak the same language.
@@ -702,10 +780,16 @@ export class MeshService {
         txPower: self.txPower,
         maxTxPower: self.maxTxPower,
       },
-      uptimeSecs,
-      txQueueLen,
-      stats,
     };
+    if (deviceTime !== undefined) result.deviceTimeMs = deviceTime.getTime();
+    if (batteryMilliVolts !== undefined) {
+      result.battery = { milliVolts: batteryMilliVolts, volts: batteryMilliVolts / 1000 };
+    }
+    if (uptimeSecs !== undefined) result.uptimeSecs = uptimeSecs;
+    if (txQueueLen !== undefined) result.txQueueLen = txQueueLen;
+    if (Object.keys(stats).length > 0) result.stats = stats;
+    if (degraded.length > 0) result.degraded = degraded;
+    return result;
   }
 
   /**
@@ -716,14 +800,14 @@ export class MeshService {
    */
   private async remoteHealth(node: string, contact: Contact): Promise<NodeHealth> {
     const password = this.credentials?.(node) ?? "";
-    await this.client.login(contact, password);
-    const status = await this.client.getStatus(contact);
+    await this.request(() => this.client.login(contact, password));
+    const status = await this.request(() => this.client.getStatus(contact));
 
     // Telemetry is best-effort: a node may report none. A failure here must not
     // sink an otherwise-good status snapshot, so swallow it to undefined.
     let telemetryBytes: number | undefined;
     try {
-      const telemetry = await this.client.getTelemetry(contact);
+      const telemetry = await this.request(() => this.client.getTelemetry(contact));
       telemetryBytes = telemetry.lppSensorData.length;
     } catch {
       telemetryBytes = undefined;

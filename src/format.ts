@@ -64,6 +64,12 @@ export const nodeHealthOutputShape = {
     .optional(),
   deviceTimeMs: z.number().optional(),
   telemetryBytes: z.number().optional(),
+  degraded: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "sub-calls that failed after retries; the snapshot is partial — the listed fields are absent",
+    ),
 } as const;
 
 /** A high-signal one-paragraph digest of a {@link NodeHealth} snapshot. */
@@ -100,6 +106,9 @@ export function digestNodeHealth(h: NodeHealth): string {
         ? `telemetry ${h.telemetryBytes} bytes (LPP, not decoded)`
         : `telemetry: none reported`,
     );
+  }
+  if (h.degraded && h.degraded.length > 0) {
+    lines.push(`partial: ${h.degraded.join(", ")} unavailable this read`);
   }
   return lines.join("\n");
 }
