@@ -331,6 +331,17 @@ export class MeshService {
   }
 
   /**
+   * Candidate node identifiers — the home node plus every contact name — for
+   * argument completion (the prompt `node` args and the `meshcore://node/{node}`
+   * resource template). Deduped; empty names dropped.
+   */
+  async nodeNames(): Promise<string[]> {
+    const survey = await this.surveyMesh();
+    const names = [survey.home.name, ...survey.contacts.map((c) => c.name)];
+    return [...new Set(names.filter((n) => n.length > 0))];
+  }
+
+  /**
    * Send a text message, resolving `target` as either a **contact** or a
    * **channel** and routing to the matching typed client method (PRD §5.1).
    *

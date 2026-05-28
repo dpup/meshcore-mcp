@@ -3,6 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerPrompts } from "./prompts/index.js";
 import { registerContacts } from "./resources/contacts.js";
+import { registerHelp } from "./resources/help.js";
+import { registerNode } from "./resources/node.js";
 import { registerNodes } from "./resources/nodes.js";
 import { registerTrafficLive } from "./resources/traffic-live.js";
 import type { MeshService } from "./service/mesh-service.js";
@@ -72,8 +74,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerNodes(server, options.service);
     registerContacts(server, options.service);
     registerTrafficLive(server, options.service);
+    registerNode(server, options.service); // meshcore://node/{node} — completes node names
+    registerHelp(server); // meshcore://help — pull-on-demand reference
 
-    registerPrompts(server);
+    registerPrompts(server, options.service);
   }
 
   return server;

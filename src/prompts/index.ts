@@ -18,8 +18,24 @@
  * and resources; they never re-implement device logic.
  */
 
+import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+import type { MeshService } from "../service/mesh-service.js";
+
+/**
+ * A `node` prompt argument that **autocompletes** to live node/contact names
+ * (matching the partial value), so a client can offer completions as the
+ * operator types — `completion/complete` against this prompt argument.
+ */
+function nodeArg(service: MeshService) {
+  return completable(z.string(), async (value) => {
+    const names = await service.nodeNames();
+    const v = value.toLowerCase();
+    return names.filter((n) => n.toLowerCase().includes(v));
+  });
+}
 
 /** Frame a single `user` message as a {@link GetPromptResult}-shaped value. */
 function userMessage(description: string, text: string) {
@@ -41,7 +57,7 @@ function userMessage(description: string, text: string) {
  * {@link createServer} registers them inside the service-present block so the
  * empty M0 smoke path stays empty.
  */
-export function registerPrompts(server: McpServer): void {
+export function registerPrompts(server: McpServer, service: MeshService): void {
   server.registerPrompt(
     "morning-mesh-check",
     {
@@ -76,7 +92,7 @@ export function registerPrompts(server: McpServer): void {
       description:
         "Work out why a specific node has gone quiet: check its health, recent " +
         "traffic to and from it, when it was last heard, and its neighbours.",
-      argsSchema: { node: z.string() },
+      argsSchema: { node: nodeArg(service) },
     },
     ({ node }) =>
       userMessage(
@@ -106,7 +122,7 @@ export function registerPrompts(server: McpServer): void {
       description:
         "Draft a concise outage notice for a node over a time window, and " +
         "optionally send it once you approve.",
-      argsSchema: { node: z.string(), window: z.string().optional() },
+      argsSchema: { node: nodeArg(service), window: z.string().optional() },
     },
     ({ node, window }) => {
       const windowText = window ?? "the recent outage window";

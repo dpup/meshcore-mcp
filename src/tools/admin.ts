@@ -23,8 +23,9 @@ import type { MeshService } from "../service/mesh-service.js";
 /**
  * A one-line `name [tier, scope] — params` summary per command, so the tool's
  * description enumerates the whole surface (kept in lock-step with the registry).
+ * Exported so the `meshcore://help` resource reuses the same generated catalogue.
  */
-function commandCatalogue(): string {
+export function commandCatalogue(): string {
   return Object.values(ADMIN_COMMANDS)
     .map((def) => {
       const shape = paramSummary(def.params);

@@ -177,6 +177,20 @@ catches it and formats an actionable error result.
 
 `Promise`\<[`NodeHealth`](#nodehealth-1)\>
 
+##### nodeNames()
+
+```ts
+nodeNames(): Promise<string[]>;
+```
+
+Candidate node identifiers — the home node plus every contact name — for
+argument completion (the prompt `node` args and the `meshcore://node/{node}`
+resource template). Deduped; empty names dropped.
+
+###### Returns
+
+`Promise`\<`string`[]\>
+
 ##### now()
 
 ```ts
@@ -2088,7 +2102,7 @@ Register the `meshcore://nodes` roster resource on `server`, backed by `service`
 ### registerPrompts()
 
 ```ts
-function registerPrompts(server): void;
+function registerPrompts(server, service): void;
 ```
 
 Register the curated prompt templates on `server`.
@@ -2102,6 +2116,7 @@ empty M0 smoke path stays empty.
 | Parameter | Type |
 | ------ | ------ |
 | `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
 
 #### Returns
 

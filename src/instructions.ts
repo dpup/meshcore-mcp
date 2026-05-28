@@ -12,7 +12,7 @@ Surface.
 - Reads (read-only, idempotent): \`get_node_health(node?)\` — omit \`node\` for the connected home node, or pass a contact name / hex key prefix for a remote; \`survey_mesh()\` — the roster with last-heard times; \`get_recent_traffic(since?)\` — recent live traffic.
 - \`send_message(target, text)\` — \`target\` is a contact (name or hex prefix) or a channel (\`#name\`, \`#index\`). Not idempotent: a resend transmits again.
 - \`admin(node, command, params?, dryRun?)\` — one enumerated command; the tool's own description lists the catalogue, each command's accepted param formats, and its risk tier (also returned in the result).
-- Resources: \`meshcore://traffic/live\` (subscribable), \`meshcore://nodes\`, \`meshcore://contacts\`. Prompts: \`morning-mesh-check\`, \`diagnose-quiet-node\`, \`draft-outage-notice\`.
+- Resources: \`meshcore://traffic/live\` (subscribable), \`meshcore://nodes\`, \`meshcore://contacts\`, \`meshcore://node/{node}\` (one node's health; the \`{node}\` variable autocompletes), and \`meshcore://help\` (a fuller reference — read it when you want more than this). Prompts: \`morning-mesh-check\`, \`diagnose-quiet-node\`, \`draft-outage-notice\` (the \`node\` argument autocompletes).
 
 Conventions.
 - Units: frequency in MHz, bandwidth in kHz (e.g. set-radio 910.525 / 62.5). Numeric params tolerate fuzzy forms but prefer these.
