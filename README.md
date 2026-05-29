@@ -13,6 +13,7 @@
 
 ```sh
 claude mcp add meshcore --env MESHCORE_HOST=<node-ip> -- npx -y @dpup/meshcore-mcp
+claude -p 'survey the mesh'
 ```
 
 `meshcore-mcp` wraps a [`@dpup/meshcore-ts`](https://github.com/dpup/meshcore-ts)
@@ -23,8 +24,8 @@ curated admin commands — with structured, digested results instead of raw fram
 
 It is the **device layer**, and **ungated by design**: no conversation policy,
 no admin-channel gate, no coalescing, no autonomous behavior. A human at Claude
-Code *is* the policy, and approves each step; an autonomous agent brings its own
-(that is `meshcore-elmer`'s job). Same server, correct in both cases — its job is
+Code *is* the policy, and approves each step; an autonomous agent brings its own.
+Same server, correct in both cases — its job is
 to be a faithful, well-shaped device interface, and to mark read-versus-action on
 every tool so a consuming policy layer, or a reviewing human, can reason about
 safety mechanically.
@@ -184,13 +185,27 @@ policy, no secrets.
 
 ## Install
 
-```sh
-npm install @dpup/meshcore-mcp      # or: bun add @dpup/meshcore-mcp / pnpm add @dpup/meshcore-mcp
-```
+`meshcore-mcp` is an **MCP server**, not a library you import — "installing" it
+means registering its launch command with an MCP client.
 
-ESM-only, **Node.js ≥ 18**. Most users won't install it directly — they point
-Claude Code's MCP config at `npx @dpup/meshcore-mcp` (above). Install it as a
-dependency when you embed `createServer` in your own host.
+- **Claude Code** — `claude mcp add` (see [Use it with Claude Code](#use-it-with-claude-code)
+  above). The client launches the server on demand via `npx`; nothing to install
+  globally.
+- **Any other MCP client** (Cursor, Windsurf, …) — put the same command in that
+  client's MCP config: `npx -y @dpup/meshcore-mcp`, with the `MESHCORE_*` env vars
+  above.
+- **Prefer a pinned, on-PATH binary?** Install it globally and point the client's
+  `command` at `meshcore-mcp`:
+
+  ```sh
+  npm i -g @dpup/meshcore-mcp      # or: bun add -g / pnpm add -g @dpup/meshcore-mcp
+  ```
+
+ESM-only, **Node.js ≥ 18**.
+
+> **Embedding** the server in your own host (the `createServer` API)? Add it as a
+> dependency instead — `npm install @dpup/meshcore-mcp` — and see
+> [Quickstart — embed a sim-backed server](#quickstart--embed-a-sim-backed-server).
 
 ## Documentation
 
@@ -209,6 +224,8 @@ You can drive the whole server in-process with **no hardware**, against
 drive a virtual `SimClock`, and call tools through a real in-memory MCP `Client`.
 Nothing below `MeshService` can tell a sim from a radio — this is the seam the
 whole test strategy hangs on.
+
+Add it as a dependency first — `npm install @dpup/meshcore-mcp` — then:
 
 ```ts
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
