@@ -22,6 +22,8 @@
  */
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { z } from "zod";
 
@@ -67,6 +69,15 @@ export interface Config {
   trafficCapacity: number | undefined;
   /** Remote-admin CLI reply timeout, in ms (→ `MeshServiceOptions.adminReplyTimeoutMs`). */
   adminReplyTimeoutMs: number;
+  /**
+   * Directory holding the server's persistent runtime state — currently the
+   * credentials file (`credentials.json`) the `set_credential` /
+   * `forget_credential` tools write. Resolves from `MESHCORE_STATE_DIR` else
+   * `$XDG_STATE_HOME/meshcore-mcp` else `~/.local/state/meshcore-mcp`.
+   * `cli.ts` builds the {@link JsonFileCredentialStore} against
+   * `<stateDir>/credentials.json`.
+   */
+  stateDir: string;
 }
 
 /**
@@ -224,6 +235,46 @@ function stripTrailingNewlines(s: string): string {
 }
 
 /**
+ * Resolve the server's state directory: `MESHCORE_STATE_DIR` if set, else the
+ * XDG default (`$XDG_STATE_HOME/meshcore-mcp`), else the conventional
+ * fallback (`~/.local/state/meshcore-mcp`). Throws a {@link ConfigError} when
+ * no home directory can be determined — at that point an explicit
+ * `MESHCORE_STATE_DIR` is the only sensible option (the alternative is
+ * silently creating files in a wrong place).
+ */
+function resolveStateDir(env: NodeJS.ProcessEnv): string {
+  const override = readVar(env, "MESHCORE_STATE_DIR");
+  if (override !== undefined) return override;
+  const xdg = readVar(env, "XDG_STATE_HOME");
+  if (xdg !== undefined) return join(xdg, "meshcore-mcp");
+  // `homedir()` consults env.HOME first, then USERPROFILE / passwd — so the
+  // injected `env` argument still drives test paths, but a missing HOME on a
+  // real system falls back to the OS. It can throw on the rare system where
+  // no home dir can be determined at all; catch that so loadConfig surfaces
+  // an actionable ConfigError instead of a raw stack trace.
+  let home: string | undefined = readVar(env, "HOME");
+  if (home === undefined) {
+    try {
+      home = homedir();
+    } catch (err) {
+      throw new ConfigError(
+        `MESHCORE_STATE_DIR is not set and the OS could not determine a home ` +
+          `directory (${err instanceof Error ? err.message : String(err)}). ` +
+          `Set MESHCORE_STATE_DIR to a writable directory for persisted credentials.`,
+      );
+    }
+  }
+  if (!home) {
+    throw new ConfigError(
+      "MESHCORE_STATE_DIR is not set and no home directory could be determined " +
+        "(neither $HOME nor $XDG_STATE_HOME resolved). Set MESHCORE_STATE_DIR " +
+        "to a writable directory for persisted credentials.",
+    );
+  }
+  return join(home, ".local", "state", "meshcore-mcp");
+}
+
+/**
  * Read and validate the server configuration from `env` (default
  * `process.env`) and `argv` (default the process args after `node script`).
  *
@@ -335,11 +386,14 @@ export function loadConfig(
       ? undefined
       : parseNumericVar(env, "MESHCORE_TRAFFIC_CAPACITY", 0);
 
+  const stateDir = resolveStateDir(env);
+
   return {
     transport,
     credentials,
     requestTimeoutMs,
     trafficCapacity,
     adminReplyTimeoutMs,
+    stateDir,
   };
 }

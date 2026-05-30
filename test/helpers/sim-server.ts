@@ -37,6 +37,11 @@ import type { MeshWorld, Responder, Scenario } from "@dpup/meshcore-sim";
 import { createServer } from "../../src/server.js";
 import { MeshService } from "../../src/service/mesh-service.js";
 import type { CredentialsProvider } from "../../src/service/mesh-service.js";
+import type { CredentialStore } from "../../src/store/credential-store.js";
+import {
+  composeCredentials,
+  InMemoryCredentialStore,
+} from "../../src/store/credential-store.js";
 
 /** Options for {@link makeSimServer}. */
 export interface MakeSimServerOptions {
@@ -48,6 +53,14 @@ export interface MakeSimServerOptions {
   clock?: SimClock;
   /** Per-node login credentials for the remote-health path (default guest). */
   credentials?: CredentialsProvider;
+  /**
+   * The runtime-managed credential store the `set_credential` /
+   * `forget_credential` tools write through. Defaults to a fresh
+   * {@link InMemoryCredentialStore} — a clean per-test slate, no disk I/O.
+   * Tests that exercise the layering pass their own store so they can
+   * inspect/preload entries.
+   */
+  credentialStore?: CredentialStore;
   /** Reactive-reply rules (meshcore-sim ≥ 0.2.0) — e.g. a remote-admin CLI reply. */
   responders?: Responder[];
 }
@@ -66,6 +79,12 @@ export interface SimServer {
   sim: SimConnection;
   /** The `MeshCoreClient` driven by the sim — `vi.spyOn` it to inject device errors. */
   meshClient: MeshCoreClient;
+  /**
+   * The credential store wired into the service. Tests that exercise the
+   * `set_credential` / `forget_credential` tools or the credential layering
+   * can inspect/preload it directly.
+   */
+  credentialStore: CredentialStore;
   /**
    * Advance the virtual clock by `by` (a `Duration`), stepping in fine
    * increments with a bounded microtask flush between each so `autoSync` traffic
@@ -110,8 +129,18 @@ export async function makeSimServer(opts: MakeSimServerOptions): Promise<SimServ
     responders: opts.responders,
   });
   const meshClient = new MeshCoreClient(sim.asConnection(), { autoSync: true });
+  // The credential store default lives at the call site (here), not in
+  // MeshService — so the seam is explicit, matching the Clock pattern.
+  const credentialStore = opts.credentialStore ?? new InMemoryCredentialStore();
+  // Same layering helper production uses (cli.ts) — store wins, then the
+  // optional env baseline; lock-step prod/test precedence.
+  const credentials: CredentialsProvider = composeCredentials(
+    credentialStore,
+    opts.credentials,
+  );
   const service = new MeshService(meshClient, clock, {
-    credentials: opts.credentials,
+    credentials,
+    credentialStore,
   });
   await service.start();
 
@@ -151,6 +180,7 @@ export async function makeSimServer(opts: MakeSimServerOptions): Promise<SimServ
     clock,
     sim,
     meshClient,
+    credentialStore,
     advance,
     flush: flushMicrotasks,
     cleanup,

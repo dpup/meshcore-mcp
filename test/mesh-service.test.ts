@@ -12,7 +12,7 @@ import {
 } from "@dpup/meshcore-sim";
 import { describe, expect, it, vi } from "vitest";
 
-import { MeshService } from "../src/index.js";
+import { InMemoryCredentialStore, MeshService } from "../src/index.js";
 import type { Clock, Duration, TimerHandle } from "../src/index.js";
 
 /**
@@ -77,7 +77,7 @@ describe("MeshService over a sim-backed MeshCoreClient", () => {
     const sim = new SimConnection({ world, clock, scenario: scn });
     const client = new MeshCoreClient(sim.asConnection(), { autoSync: true });
 
-    const service = new MeshService(client, clock);
+    const service = new MeshService(client, clock, { credentialStore: new InMemoryCredentialStore() });
     await service.start();
 
     // Drive the scenario one virtual second at a time, so each burst message is
@@ -132,7 +132,7 @@ describe("MeshService over a sim-backed MeshCoreClient", () => {
     const sim = new SimConnection({ world, clock, scenario: scn });
     const client = new MeshCoreClient(sim.asConnection(), { autoSync: true });
 
-    const service = new MeshService(client, clock);
+    const service = new MeshService(client, clock, { credentialStore: new InMemoryCredentialStore() });
     await service.start();
 
     // Step to each event's fire time so the `at` stamps reflect virtual time.
@@ -177,7 +177,7 @@ describe("MeshService over a sim-backed MeshCoreClient", () => {
     const sim = new SimConnection({ world, clock, scenario: scn });
     const client = new MeshCoreClient(sim.asConnection(), { autoSync: true });
 
-    const service = new MeshService(client, clock);
+    const service = new MeshService(client, clock, { credentialStore: new InMemoryCredentialStore() });
     await service.start();
 
     // Step past each message so each is stamped at its own virtual time
@@ -218,7 +218,7 @@ describe("sendMessage confirm: ack-wait window honours a reported estTimeout of 
     const conn = new SimConnection({ world, clock: sim });
     const client = new MeshCoreClient(conn.asConnection(), { autoSync: true });
 
-    const service = new MeshService(client, clock);
+    const service = new MeshService(client, clock, { credentialStore: new InMemoryCredentialStore() });
     await service.start();
 
     // The `??` fix: a legit reported estTimeout of 0 must survive (0 + 2000 =

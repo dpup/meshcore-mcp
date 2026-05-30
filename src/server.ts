@@ -10,11 +10,13 @@ import { registerNodes } from "./resources/nodes.js";
 import { registerTrafficLive } from "./resources/traffic-live.js";
 import type { MeshService } from "./service/mesh-service.js";
 import { registerAdmin } from "./tools/admin.js";
+import { registerForgetCredential } from "./tools/forget-credential.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 import { registerDeleteChannel } from "./tools/delete-channel.js";
 import { registerSendMessage } from "./tools/send-message.js";
 import { registerSetChannel } from "./tools/set-channel.js";
+import { registerSetCredential } from "./tools/set-credential.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
 import { registerTracePath } from "./tools/trace-path.js";
 import { VERSION } from "./version.js";
@@ -77,6 +79,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     registerDeleteChannel(server, options.service);
     registerTracePath(server, options.service);
     registerAdmin(server, options.service);
+    // Server-state credential tools — no device contact; runtime-managed
+    // login passwords for remote nodes (see src/store/credential-store.ts).
+    registerSetCredential(server, options.service);
+    registerForgetCredential(server, options.service);
 
     registerNodes(server, options.service);
     registerContacts(server, options.service);

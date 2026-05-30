@@ -20,6 +20,8 @@
  *
  * Note: stdout is the MCP protocol channel — all diagnostics go to **stderr**.
  */
+import { join } from "node:path";
+
 import { MeshCoreClient } from "@dpup/meshcore-ts";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
@@ -28,6 +30,11 @@ import { ConfigError, loadConfig } from "./config.js";
 import type { Config } from "./config.js";
 import { createServer } from "./server.js";
 import { MeshService } from "./service/mesh-service.js";
+import {
+  composeCredentials,
+  CredentialStoreError,
+  JsonFileCredentialStore,
+} from "./store/credential-store.js";
 
 /** Build the live `MeshCoreClient` for the configured transport. */
 function buildClient(config: Config): MeshCoreClient {
@@ -55,11 +62,17 @@ function describeTransport(config: Config): string {
 async function main(): Promise<void> {
   // 1. Configuration. A ConfigError is the operator's problem to fix — print
   //    its actionable message to stderr and exit non-zero; never throw raw.
+  //    Loading the persisted credential store happens here too: a malformed
+  //    file is a startup error operators must address, on the same path.
   let config: Config;
+  let credentialStore: JsonFileCredentialStore;
   try {
     config = loadConfig();
+    credentialStore = new JsonFileCredentialStore({
+      path: join(config.stateDir, "credentials.json"),
+    });
   } catch (err) {
-    if (err instanceof ConfigError) {
+    if (err instanceof ConfigError || err instanceof CredentialStoreError) {
       process.stderr.write(`meshcore-mcp: ${err.message}\n`);
       process.exit(1);
     }
@@ -67,11 +80,16 @@ async function main(): Promise<void> {
   }
 
   // 2–5. Build the stack: client ← transport config, service ← client + clock +
-  //      credentials/tuning, server ← service.
+  //      credentials/tuning, server ← service. `composeCredentials` is the
+  //      single source of truth for the layering precedence
+  //      (store ⟶ env per-node ⟶ env default ⟶ guest) — production and the
+  //      test harness both call it, so prod/test stay in lock-step.
   const client = buildClient(config);
   const clock = new SystemClock();
+  const credentials = composeCredentials(credentialStore, config.credentials);
   const service = new MeshService(client, clock, {
-    credentials: config.credentials,
+    credentials,
+    credentialStore,
     trafficCapacity: config.trafficCapacity,
     adminReplyTimeoutMs: config.adminReplyTimeoutMs,
   });

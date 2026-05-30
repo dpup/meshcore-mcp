@@ -123,6 +123,14 @@ the text `bun.lock`; bun 1.1.x writes the binary `bun.lockb` (gitignored).
 - **Injected clock.** Take time from a `Clock` (`now()` + timer scheduling), never
   raw `Date.now()`/`setTimeout` below the entrypoint — `SystemClock` in prod,
   `SimClock` in tests.
+- **Injected credential store.** The third seam alongside `MeshCoreClient` +
+  `Clock`: `MeshService` takes a `CredentialStore` so the
+  `set_credential` / `forget_credential` tools can persist runtime login
+  passwords without `MeshService` knowing where they go. The
+  `store ⟶ env per-node ⟶ env default ⟶ guest` *layering* is composed in
+  `cli.ts` (the `credentials` callback), not inside `MeshService` — production
+  uses a `JsonFileCredentialStore` under `$XDG_STATE_HOME/meshcore-mcp/`;
+  tests get the in-memory default via `makeSimServer`.
 - **Structured, digested output.** Every tool returns a typed `outputSchema`
   result; every error is actionable, not a raw frame (PRD §4, §5.3).
 - **Annotations are the boundary.** Every tool declares

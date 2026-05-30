@@ -67,6 +67,26 @@ export { registerSetChannel } from "./tools/set-channel.js";
 export { registerDeleteChannel } from "./tools/delete-channel.js";
 export { registerTracePath } from "./tools/trace-path.js";
 export { registerAdmin } from "./tools/admin.js";
+export { registerSetCredential } from "./tools/set-credential.js";
+export { registerForgetCredential } from "./tools/forget-credential.js";
+
+// The runtime-managed credential store — the third injected seam (alongside
+// MeshCoreClient and Clock). Persists the per-node login passwords the
+// `set_credential` / `forget_credential` tools push in. `composeCredentials`
+// is the single source of truth for the layering precedence used by both
+// production (cli.ts) and the test harness.
+export {
+  InMemoryCredentialStore,
+  JsonFileCredentialStore,
+  CredentialStoreError,
+  composeCredentials,
+  defaultCredentialFs,
+} from "./store/credential-store.js";
+export type {
+  CredentialStore,
+  CredentialFs,
+  JsonFileCredentialStoreOptions,
+} from "./store/credential-store.js";
 
 // Resource registrars (wired by createServer; exported for reuse/inspection).
 export { registerTrafficLive, TRAFFIC_LIVE_URI } from "./resources/traffic-live.js";

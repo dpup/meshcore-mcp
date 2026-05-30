@@ -46,6 +46,7 @@ import { randomBytes } from "node:crypto";
 
 import type { Clock, TimerHandle } from "../clock.js";
 import { withRetry } from "../retry.js";
+import type { CredentialStore } from "../store/credential-store.js";
 import type { AdminCommandDef, RiskTier, TierAnnotations } from "./admin.js";
 import { ADMIN_COMMANDS, ADMIN_COMMAND_NAMES, annotationsForTier } from "./admin.js";
 import type { MeshSurvey, NodeHealth, SurveyContact } from "./health.js";
@@ -259,6 +260,20 @@ export interface MeshServiceOptions {
    */
   credentials?: CredentialsProvider;
   /**
+   * The runtime-managed credential store the `set_credential` /
+   * `forget_credential` tools write through. **Required** — like
+   * {@link MeshCoreClient} and {@link Clock}, the store is an injected seam
+   * the caller owns (AGENTS.md don't-regress #1). Production builds a
+   * `JsonFileCredentialStore`; tests build an `InMemoryCredentialStore`.
+   *
+   * Reads still go through {@link credentials} — the production
+   * `credentials` callback (`composeCredentials`) layers this store on top of
+   * the env defaults, so writes here are visible to subsequent admin /
+   * remote-health calls without `MeshService` ever knowing the layering
+   * exists.
+   */
+  credentialStore: CredentialStore;
+  /**
    * How long {@link MeshService.runAdmin}'s remote path waits for the repeater's CLI reply
    * before giving up, as injected-clock ms. Scheduled on the {@link Clock} (never
    * a native timer). Defaults to 15s.
@@ -299,6 +314,13 @@ export class MeshService {
   private readonly buffer: TrafficBuffer;
   /** Resolve a node's login password; `undefined` ⇒ guest (`""`). */
   private readonly credentials: CredentialsProvider | undefined;
+  /**
+   * The injected credential store — the write-side surface the
+   * `set_credential` / `forget_credential` tools push into. Reads layer it
+   * underneath the {@link credentials} callback (built in `cli.ts`), so
+   * `MeshService` itself never reads from it directly.
+   */
+  private readonly credentialStore: CredentialStore;
   /** How long the remote admin path waits for a CLI reply, in clock ms. */
   private readonly adminReplyTimeoutMs: number;
   /** Monotonic counter behind the `evt-<n>` ids. */
@@ -340,21 +362,79 @@ export class MeshService {
    * @param client - An already-built {@link MeshCoreClient} (real or sim-backed).
    * @param clock - The injected {@link Clock} (`SystemClock` in prod, `SimClock`
    *   in tests). Stamps every buffered event.
-   * @param options - Optional tuning (see {@link MeshServiceOptions}).
+   * @param options - The credential store (required) and any optional tuning
+   *   (see {@link MeshServiceOptions}).
    */
   constructor(
     client: MeshCoreClient,
     clock: Clock,
-    options: MeshServiceOptions = {},
+    options: MeshServiceOptions,
   ) {
     this.client = client;
     this.clock = clock;
     this.buffer = new TrafficBuffer(options.trafficCapacity);
     this.credentials = options.credentials;
+    this.credentialStore = options.credentialStore;
     this.adminReplyTimeoutMs =
       options.adminReplyTimeoutMs ?? DEFAULT_ADMIN_REPLY_TIMEOUT_MS;
     this.reconnect = new ReconnectDaemon(client, clock);
     this.resolver = new Resolver(client, (fn) => this.request(fn));
+  }
+
+  /**
+   * Store (or overwrite) the password the server logs into `node` with for
+   * remote admin / remote health reads, write-through to the backing
+   * {@link CredentialStore}. Unrelated to the `set-admin-password` admin
+   * command, which changes the *node's* password; this changes only the
+   * server's local memory of which password to use.
+   *
+   * Validates that `node` resolves to a known contact (or the home node) so a
+   * typo'd name doesn't silently store a credential under a key that will
+   * never be looked up. Throws {@link MeshServiceUnknownNodeError} if no
+   * contact matches — the tool layer surfaces it as an actionable
+   * `isError` result.
+   *
+   * Touches no device for the *write*; the contact-existence check uses
+   * `findContactByName` / `findContactByPublicKeyPrefix` which are local
+   * reads against the device's already-synced contact list.
+   */
+  async setCredential(node: string, password: string): Promise<void> {
+    await this.requireKnownNode(node);
+    await this.credentialStore.set(node, password);
+  }
+
+  /**
+   * Remove the stored password for `node`; subsequent admin/remote-health
+   * calls fall back to the env default credential resolver. No-op when no
+   * entry exists (still resolves). Touches no device.
+   */
+  async forgetCredential(node: string): Promise<boolean> {
+    const had = this.credentialStore.get(node) !== undefined;
+    await this.credentialStore.delete(node);
+    return had;
+  }
+
+  /**
+   * Every node with a stored credential — for diagnostics / a future
+   * `list_credentials` tool. Never echoes the passwords themselves.
+   */
+  listCredentialNodes(): readonly string[] {
+    return this.credentialStore.nodes();
+  }
+
+  /**
+   * Throw {@link MeshServiceUnknownNodeError} unless `node` resolves to the
+   * home device or a known contact. Used by {@link setCredential} to refuse
+   * storing a credential under a typo'd name that subsequent admin /
+   * remote-health calls would never look up.
+   */
+  private async requireKnownNode(node: string): Promise<void> {
+    const self = await this.request(() => this.client.getSelfInfo());
+    if (this.resolver.isHome(node, self)) return;
+    const contact = await this.resolver.resolveContact(node);
+    if (contact === undefined) {
+      throw new MeshServiceUnknownNodeError(node);
+    }
   }
 
   /**

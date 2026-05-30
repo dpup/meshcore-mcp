@@ -93,6 +93,275 @@ Error.constructor
 
 ***
 
+### CredentialStoreError
+
+Raised when [JsonFileCredentialStore](#jsonfilecredentialstore) cannot load or persist the
+backing file. The entrypoint (`cli.ts`) catches it on startup the same way
+it catches `ConfigError` — print the actionable message to stderr and exit
+non-zero, never let a raw stack escape.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+```ts
+new CredentialStoreError(message): CredentialStoreError;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `message` | `string` |
+
+###### Returns
+
+[`CredentialStoreError`](#credentialstoreerror)
+
+###### Overrides
+
+```ts
+Error.constructor
+```
+
+***
+
+### InMemoryCredentialStore
+
+The process-local credential store: no persistence, no I/O. The default in
+tests (where the sim-backed harness wants a clean slate per test).
+
+#### Implements
+
+- [`CredentialStore`](#credentialstore)
+
+#### Constructors
+
+##### Constructor
+
+```ts
+new InMemoryCredentialStore(): InMemoryCredentialStore;
+```
+
+###### Returns
+
+[`InMemoryCredentialStore`](#inmemorycredentialstore)
+
+#### Methods
+
+##### delete()
+
+```ts
+delete(node): Promise<void>;
+```
+
+Remove `node`'s stored password. No-op when no entry exists.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`delete`](#delete-2)
+
+##### get()
+
+```ts
+get(node): string | undefined;
+```
+
+Look up `node`'s stored password, or `undefined` if none. Sync — hot path.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`string` \| `undefined`
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`get`](#get-2)
+
+##### nodes()
+
+```ts
+nodes(): readonly string[];
+```
+
+Every node with a stored entry, in insertion order. For diagnostics.
+
+###### Returns
+
+readonly `string`[]
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`nodes`](#nodes-2)
+
+##### set()
+
+```ts
+set(node, password): Promise<void>;
+```
+
+Store (or overwrite) `node`'s password, write-through to the backing store.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+| `password` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`set`](#set-2)
+
+***
+
+### JsonFileCredentialStore
+
+Persisted credential store backed by a single JSON file. Loaded
+synchronously on construction (fail-fast on a malformed file, matching the
+existing `ConfigError` pattern); writes are atomic (`*.tmp` + `rename`) so a
+crash mid-write can't leave a half-written file. The leaf state dir is
+forced to `0o700` on first write (so a pre-existing loose dir is tightened),
+and the file is forced to `0o600` after each rename. Loose permissions found
+at load are warned, never thrown (operators may have set them deliberately).
+
+The store ensures the state directory exists and is writable at
+construction time (`fs.access(W_OK)`), so a read-only `MESHCORE_STATE_DIR`
+or a typo fails fast on startup rather than at the first `set_credential`
+tool call. A missing file inside a writable dir is normal (treated as empty).
+
+#### Implements
+
+- [`CredentialStore`](#credentialstore)
+
+#### Constructors
+
+##### Constructor
+
+```ts
+new JsonFileCredentialStore(opts): JsonFileCredentialStore;
+```
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `opts` | [`JsonFileCredentialStoreOptions`](#jsonfilecredentialstoreoptions) |
+
+###### Returns
+
+[`JsonFileCredentialStore`](#jsonfilecredentialstore)
+
+#### Methods
+
+##### delete()
+
+```ts
+delete(node): Promise<void>;
+```
+
+Remove `node`'s stored password. No-op when no entry exists.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`delete`](#delete-2)
+
+##### get()
+
+```ts
+get(node): string | undefined;
+```
+
+Look up `node`'s stored password, or `undefined` if none. Sync — hot path.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`string` \| `undefined`
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`get`](#get-2)
+
+##### nodes()
+
+```ts
+nodes(): readonly string[];
+```
+
+Every node with a stored entry, in insertion order. For diagnostics.
+
+###### Returns
+
+readonly `string`[]
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`nodes`](#nodes-2)
+
+##### set()
+
+```ts
+set(node, password): Promise<void>;
+```
+
+Store (or overwrite) `node`'s password, write-through to the backing store.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+| `password` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+###### Implementation of
+
+[`CredentialStore`](#credentialstore).[`set`](#set-2)
+
+***
+
 ### MeshService
 
 The device-facing core: an injected [MeshCoreClient](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md) + [Clock](#clock),
@@ -117,7 +386,7 @@ await service.stop();
 new MeshService(
    client, 
    clock, 
-   options?): MeshService;
+   options): MeshService;
 ```
 
 ###### Parameters
@@ -126,7 +395,7 @@ new MeshService(
 | ------ | ------ | ------ |
 | `client` | [`MeshCoreClient`](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md) | An already-built [MeshCoreClient](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md) (real or sim-backed). |
 | `clock` | [`Clock`](#clock) | The injected [Clock](#clock) (`SystemClock` in prod, `SimClock` in tests). Stamps every buffered event. |
-| `options` | [`MeshServiceOptions`](#meshserviceoptions) | Optional tuning (see [MeshServiceOptions](#meshserviceoptions)). |
+| `options` | [`MeshServiceOptions`](#meshserviceoptions) | The credential store (required) and any optional tuning (see [MeshServiceOptions](#meshserviceoptions)). |
 
 ###### Returns
 
@@ -191,6 +460,39 @@ path; the tool marks it destructive.
   `index`: `number`;
   `name?`: `string`;
 \}\>
+
+##### forgetCredential()
+
+```ts
+forgetCredential(node): Promise<boolean>;
+```
+
+Remove the stored password for `node`; subsequent admin/remote-health
+calls fall back to the env default credential resolver. No-op when no
+entry exists (still resolves). Touches no device.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`Promise`\<`boolean`\>
+
+##### listCredentialNodes()
+
+```ts
+listCredentialNodes(): readonly string[];
+```
+
+Every node with a stored credential — for diagnostics / a future
+`list_credentials` tool. Never echoes the passwords themselves.
+
+###### Returns
+
+readonly `string`[]
 
 ##### nodeHealth()
 
@@ -400,6 +702,39 @@ resulting channel including its secret (hex), so the key can be shared.
   `name`: `string`;
   `secret`: `string`;
 \}\>
+
+##### setCredential()
+
+```ts
+setCredential(node, password): Promise<void>;
+```
+
+Store (or overwrite) the password the server logs into `node` with for
+remote admin / remote health reads, write-through to the backing
+[CredentialStore](#credentialstore). Unrelated to the `set-admin-password` admin
+command, which changes the *node's* password; this changes only the
+server's local memory of which password to use.
+
+Validates that `node` resolves to a known contact (or the home node) so a
+typo'd name doesn't silently store a credential under a key that will
+never be looked up. Throws [MeshServiceUnknownNodeError](#meshserviceunknownnodeerror) if no
+contact matches — the tool layer surfaces it as an actionable
+`isError` result.
+
+Touches no device for the *write*; the contact-existence check uses
+`findContactByName` / `findContactByPublicKeyPrefix` which are local
+reads against the device's already-synced contact list.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+| `password` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### start()
 
@@ -1024,6 +1359,19 @@ requestTimeoutMs: number;
 
 Client request timeout, in ms (→ `ClientOptions.requestTimeoutMs`).
 
+##### stateDir
+
+```ts
+stateDir: string;
+```
+
+Directory holding the server's persistent runtime state — currently the
+credentials file (`credentials.json`) the `set_credential` /
+`forget_credential` tools write. Resolves from `MESHCORE_STATE_DIR` else
+`$XDG_STATE_HOME/meshcore-mcp` else `~/.local/state/meshcore-mcp`.
+`cli.ts` builds the [JsonFileCredentialStore](#jsonfilecredentialstore) against
+`<stateDir>/credentials.json`.
+
 ##### trafficCapacity
 
 ```ts
@@ -1088,6 +1436,247 @@ Server version advertised to clients. Defaults to the package version.
 
 ***
 
+### CredentialFs
+
+The narrow filesystem surface [JsonFileCredentialStore](#jsonfilecredentialstore) needs. Injected
+so unit tests can exercise the atomic-write + permissions logic without
+touching real disk, mirroring how `loadConfig` already takes an injected
+`FileReader` (src/config.ts).
+
+#### Methods
+
+##### access()
+
+```ts
+access(path, mode): void;
+```
+
+Test write access on `path` (`access(path, W_OK)`). Throws if the
+path is not writable. Used at construction to fail-fast on a read-only
+state dir instead of waiting for the first `set_credential` tool call.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+| `mode` | `number` |
+
+###### Returns
+
+`void`
+
+##### chmod()
+
+```ts
+chmod(path, mode): void;
+```
+
+Force a path's mode bits. [JsonFileCredentialStore](#jsonfilecredentialstore) calls this on
+both the leaf dir (to tighten an existing or umask-defaulted dir to
+`DIR_MODE`) and the file after rename (belt+braces for a stale `.tmp`).
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+| `mode` | `number` |
+
+###### Returns
+
+`void`
+
+##### mkdir()
+
+```ts
+mkdir(path, mode): void;
+```
+
+Recursive `mkdir -p`. The `mode` argument is applied on create where the
+platform honours it, but Node's `mkdirSync({recursive:true})` does **not**
+tighten an existing directory and does not reliably apply `mode` to
+intermediate dirs — [JsonFileCredentialStore](#jsonfilecredentialstore) therefore chmods the
+leaf explicitly after this returns.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+| `mode` | `number` |
+
+###### Returns
+
+`void`
+
+##### readFile()
+
+```ts
+readFile(path): string;
+```
+
+Read a UTF-8 file; throws (with `code: "ENOENT"`) if missing.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+
+###### Returns
+
+`string`
+
+##### rename()
+
+```ts
+rename(oldPath, newPath): void;
+```
+
+Atomic move (same filesystem) — used to publish a freshly-written `.tmp`.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `oldPath` | `string` |
+| `newPath` | `string` |
+
+###### Returns
+
+`void`
+
+##### stat()
+
+```ts
+stat(path): object;
+```
+
+Read a file's (or directory's) mode bits; throws if it does not exist.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+
+###### Returns
+
+`object`
+
+###### mode
+
+```ts
+mode: number;
+```
+
+##### writeFile()
+
+```ts
+writeFile(
+   path, 
+   contents, 
+   mode): void;
+```
+
+Create or replace a file, applying `mode` on create.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `path` | `string` |
+| `contents` | `string` |
+| `mode` | `number` |
+
+###### Returns
+
+`void`
+
+***
+
+### CredentialStore
+
+The credential-store contract: a small, store-agnostic surface the server
+uses to look up and (at runtime) update the password it logs into a remote
+node with. `get` is **sync** because it sits on the admin/remote-health hot
+path; mutations are **async** because the prod impl writes through to disk.
+
+Returning `undefined` from [get](#get-2) means "no entry" — the caller layers
+env defaults underneath (see [composeCredentials](#composecredentials)).
+
+#### Methods
+
+##### delete()
+
+```ts
+delete(node): Promise<void>;
+```
+
+Remove `node`'s stored password. No-op when no entry exists.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### get()
+
+```ts
+get(node): string | undefined;
+```
+
+Look up `node`'s stored password, or `undefined` if none. Sync — hot path.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+
+###### Returns
+
+`string` \| `undefined`
+
+##### nodes()
+
+```ts
+nodes(): readonly string[];
+```
+
+Every node with a stored entry, in insertion order. For diagnostics.
+
+###### Returns
+
+readonly `string`[]
+
+##### set()
+
+```ts
+set(node, password): Promise<void>;
+```
+
+Store (or overwrite) `node`'s password, write-through to the backing store.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `node` | `string` |
+| `password` | `string` |
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### ErrorContext
 
 Context that sharpens an error message into something an operator can act on.
@@ -1129,6 +1718,48 @@ The node the failing operation targeted (name or key prefix), if any.
 
 ***
 
+### JsonFileCredentialStoreOptions
+
+Options for constructing a [JsonFileCredentialStore](#jsonfilecredentialstore).
+
+#### Properties
+
+##### fs?
+
+```ts
+optional fs?: CredentialFs;
+```
+
+Filesystem adapter; defaults to [defaultCredentialFs](#defaultcredentialfs) (real `node:fs`).
+
+##### path
+
+```ts
+path: string;
+```
+
+Absolute path to the JSON file (e.g. `<stateDir>/credentials.json`).
+
+##### warn?
+
+```ts
+optional warn?: (message) => void;
+```
+
+Diagnostic sink for non-fatal warnings; defaults to a stderr writer.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `message` | `string` |
+
+###### Returns
+
+`void`
+
+***
+
 ### MeshServiceOptions
 
 Options for constructing a [MeshService](#meshservice).
@@ -1154,6 +1785,24 @@ optional credentials?: CredentialsProvider;
 Resolve a node's admin/login password for the remote-[MeshService.nodeHealth](#nodehealth)
 path. Defaults to the guest password (`""`) for every node. M6 wires this
 from config; M2 only plumbs the seam.
+
+##### credentialStore
+
+```ts
+credentialStore: CredentialStore;
+```
+
+The runtime-managed credential store the `set_credential` /
+`forget_credential` tools write through. **Required** — like
+[MeshCoreClient](https://github.com/dpup/meshcore-ts/blob/main/docs/api.md) and [Clock](#clock), the store is an injected seam
+the caller owns (AGENTS.md don't-regress #1). Production builds a
+`JsonFileCredentialStore`; tests build an `InMemoryCredentialStore`.
+
+Reads still go through [credentials](#credentials-1) — the production
+`credentials` callback (`composeCredentials`) layers this store on top of
+the env defaults, so writes here are visible to subsequent admin /
+remote-health calls without `MeshService` ever knowing the layering
+exists.
 
 ##### trafficCapacity?
 
@@ -2021,6 +2670,33 @@ idempotentHint }` triple — the deterministic table from execution plan §9.
 
 ***
 
+### composeCredentials()
+
+```ts
+function composeCredentials(store, baseline): CredentialsProvider;
+```
+
+Compose a [CredentialsProvider](#credentialsprovider) that layers a runtime [CredentialStore](#credentialstore)
+over a baseline (typically the env-driven `config.credentials` callback).
+The store wins where it has an entry; otherwise the baseline is consulted.
+
+This is the single source of truth for the precedence rule used by both
+`cli.ts` (production) and the test harness — if the layering changes (cache,
+extra source, reordering), update it here, not at two call sites.
+
+#### Parameters
+
+| Parameter | Type | Description |
+| ------ | ------ | ------ |
+| `store` | [`CredentialStore`](#credentialstore) | The runtime-managed store, written by `set_credential` / `forget_credential`. Always consulted first. |
+| `baseline` | [`CredentialsProvider`](#credentialsprovider) \| `undefined` | The env-default resolver (`config.credentials`). May be `undefined` in tests that don't supply one; in that case lookups fall through to `undefined`, which `MeshService.runAdminRemote` interprets as the guest password. |
+
+#### Returns
+
+[`CredentialsProvider`](#credentialsprovider)
+
+***
+
 ### createServer()
 
 ```ts
@@ -2043,6 +2719,22 @@ an `InMemoryTransport` linked to a `Client` in tests.
 #### Returns
 
 [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk)
+
+***
+
+### defaultCredentialFs()
+
+```ts
+function defaultCredentialFs(): CredentialFs;
+```
+
+The default [CredentialFs](#credentialfs): a thin wrapper over `node:fs`'s sync
+primitives. Sync is fine — these are rare, small operations on a server
+that has no concurrency model below the entrypoint.
+
+#### Returns
+
+[`CredentialFs`](#credentialfs)
 
 ***
 
@@ -2202,6 +2894,27 @@ function registerDeleteChannel(server, service): void;
 `delete_channel` — clear a channel slot on the connected node, by `index` or
 by `name`. The companion counterpart to `set_channel`; like it, a home-node
 config operation (its own tool, not an `admin` command).
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerForgetCredential()
+
+```ts
+function registerForgetCredential(server, service): void;
+```
+
+Register the `forget_credential` tool on `server`, backed by `service`.
 
 #### Parameters
 
@@ -2383,6 +3096,27 @@ config is a home-node (companion) operation with no remote-CLI form, so it is
 its own tool rather than an `admin` command. Omit `secret` to generate a
 random private channel; omit `index` to take the next free slot (a plain add
 never clobbers an existing channel).
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetCredential()
+
+```ts
+function registerSetCredential(server, service): void;
+```
+
+Register the `set_credential` tool on `server`, backed by `service`.
 
 #### Parameters
 

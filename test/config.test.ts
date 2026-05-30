@@ -270,6 +270,57 @@ describe("loadConfig", () => {
     });
   });
 
+  describe("state directory", () => {
+    it("uses MESHCORE_STATE_DIR verbatim when set", () => {
+      const config = loadConfig(
+        { MESHCORE_HOST: "node.local", MESHCORE_STATE_DIR: "/var/lib/meshcore-mcp" },
+        [],
+      );
+      expect(config.stateDir).toBe("/var/lib/meshcore-mcp");
+    });
+
+    it("falls back to $XDG_STATE_HOME/meshcore-mcp", () => {
+      const config = loadConfig(
+        { MESHCORE_HOST: "node.local", XDG_STATE_HOME: "/xdg/state" },
+        [],
+      );
+      expect(config.stateDir).toBe("/xdg/state/meshcore-mcp");
+    });
+
+    it("falls back to ~/.local/state/meshcore-mcp when only HOME is set", () => {
+      const config = loadConfig(
+        { MESHCORE_HOST: "node.local", HOME: "/home/operator" },
+        [],
+      );
+      expect(config.stateDir).toBe("/home/operator/.local/state/meshcore-mcp");
+    });
+
+    it("MESHCORE_STATE_DIR beats $XDG_STATE_HOME and $HOME", () => {
+      const config = loadConfig(
+        {
+          MESHCORE_HOST: "node.local",
+          MESHCORE_STATE_DIR: "/explicit",
+          XDG_STATE_HOME: "/xdg/state",
+          HOME: "/home/operator",
+        },
+        [],
+      );
+      expect(config.stateDir).toBe("/explicit");
+    });
+
+    it("$XDG_STATE_HOME beats $HOME (the XDG convention)", () => {
+      const config = loadConfig(
+        {
+          MESHCORE_HOST: "node.local",
+          XDG_STATE_HOME: "/xdg/state",
+          HOME: "/home/operator",
+        },
+        [],
+      );
+      expect(config.stateDir).toBe("/xdg/state/meshcore-mcp");
+    });
+  });
+
   describe("flag overrides", () => {
     it("lets --host / --port beat the env", () => {
       const config = loadConfig(

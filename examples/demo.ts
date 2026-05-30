@@ -47,7 +47,12 @@ import {
 import type { Scenario } from "@dpup/meshcore-sim";
 
 // in your project: import { createServer, MeshService } from "@dpup/meshcore-mcp"
-import { MeshService, createServer, TRAFFIC_LIVE_URI } from "../src/index.js";
+import {
+  InMemoryCredentialStore,
+  MeshService,
+  createServer,
+  TRAFFIC_LIVE_URI,
+} from "../src/index.js";
 import type { MeshSurvey, NodeHealth, TrafficEvent } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
@@ -139,7 +144,9 @@ async function wireStack(world: ReturnType<typeof defineWorld>, scn?: Scenario):
   const clock = new SimClock();
   const sim = new SimConnection({ world, clock, scenario: scn });
   const meshClient = new MeshCoreClient(sim.asConnection(), { autoSync: true });
-  const service = new MeshService(meshClient, clock);
+  const service = new MeshService(meshClient, clock, {
+    credentialStore: new InMemoryCredentialStore(),
+  });
   await service.start();
 
   const server = createServer({ service });

@@ -58,6 +58,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { createServer } from "../src/server.js";
 import { MeshService } from "../src/service/mesh-service.js";
+import { InMemoryCredentialStore } from "../src/store/credential-store.js";
 
 /** stderr-only logging — stdout is reserved for the MCP protocol. */
 function log(msg: string): void {
@@ -157,7 +158,9 @@ async function main(): Promise<void> {
   const clock = new SimClock();
   const sim = new SimConnection({ world, clock, scenario: scn, responders: buildResponders() });
   const client = new MeshCoreClient(sim.asConnection(), { autoSync: true });
-  const service = new MeshService(client, clock);
+  const service = new MeshService(client, clock, {
+    credentialStore: new InMemoryCredentialStore(),
+  });
   await service.start();
 
   const server = createServer({ service });
