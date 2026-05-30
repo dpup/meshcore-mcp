@@ -2641,7 +2641,7 @@ The canonical uri of the live-traffic resource.
 ### VERSION
 
 ```ts
-const VERSION: "0.1.0" = "0.1.0";
+const VERSION: "0.1.2" = "0.1.2";
 ```
 
 The package version. Kept in step with package.json at release time.
