@@ -227,14 +227,21 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
 });
 
 describe("ADMIN_COMMANDS registry (unit)", () => {
-  it("enumerates all 16 commands with the right tiers", () => {
-    const names = Object.keys(ADMIN_COMMANDS).sort();
-    expect(names).toHaveLength(16);
+  it("enumerates the full command set with the right tiers", () => {
+    const names = Object.keys(ADMIN_COMMANDS);
+    // Lower bound — the catalogue grows over time as we cover more of the
+    // repeater CLI surface. Spot-check tiers across the categories instead
+    // of pinning an exact count.
+    expect(names.length).toBeGreaterThanOrEqual(40);
     expect(ADMIN_COMMANDS.reboot?.tier).toBe("destructive");
     expect(ADMIN_COMMANDS.advert?.tier).toBe("benign");
     expect(ADMIN_COMMANDS["set-tx-power"]?.tier).toBe("config");
     expect(ADMIN_COMMANDS["set-admin-password"]?.tier).toBe("sensitive");
+    expect(ADMIN_COMMANDS["set-guest-password"]?.tier).toBe("sensitive");
+    expect(ADMIN_COMMANDS["set-private-key"]?.tier).toBe("destructive");
     expect(ADMIN_COMMANDS["log-erase"]?.tier).toBe("destructive");
+    expect(ADMIN_COMMANDS["ver"]?.tier).toBe("read");
+    expect(ADMIN_COMMANDS["neighbors"]?.tier).toBe("read");
   });
 
   it("scopes remote-only vs home+remote correctly", () => {
@@ -287,9 +294,97 @@ describe("ADMIN_COMMANDS registry (unit)", () => {
     expect(
       ADMIN_COMMANDS["set-permission"]!.remoteCli({ pubKey: "ABCD", level: "admin" } as never),
     ).toBe("setperm abcd 3");
+    // setperm null-level revokes by sending level 0 (guest) — firmware has
+    // no explicit removal, and its strtok requires a space + value.
     expect(
       ADMIN_COMMANDS["set-permission"]!.remoteCli({ pubKey: "ABCD", level: null } as never),
-    ).toBe("setperm abcd");
+    ).toBe("setperm abcd 0");
+  });
+
+  it("smoke: every registry entry has working preview + remoteCli (no silent gaps)", () => {
+    // Per-command minimal valid params — used by the across-the-board smoke
+    // checks below. A command that's missing here means it was added without
+    // a smoke test; that's exactly what this test catches. Don't auto-derive
+    // these from the schema — the point is explicit verification per entry.
+    const samples: Record<string, unknown> = {
+      reboot: {},
+      advert: { mode: "flood" },
+      "sync-time": {},
+      "set-tx-power": { dbm: 20 },
+      "set-radio": { freqMhz: 910, bwKhz: 250, sf: 10, cr: 5 },
+      "set-name": { name: "Test" },
+      "set-location": { lat: 1, lon: 2 },
+      "set-admin-password": { password: "pw" },
+      "set-repeat": { enabled: true },
+      "set-dutycycle": { percent: 50 },
+      "log-start": {},
+      "log-stop": {},
+      "log-erase": {},
+      "clear-stats": {},
+      "remove-neighbor": { pubKeyPrefix: "abcd" },
+      "set-permission": { pubKey: "abcd", level: "admin" },
+      "set-path-hash-mode": { mode: 1 },
+      "set-loop-detect": { level: "moderate" },
+      "set-flood-max": { hops: 8 },
+      "set-radio-rxgain": { enabled: true },
+      tempradio: { freqMhz: 910, bwKhz: 250, sf: 10, cr: 5, timeoutMins: 10 },
+      "set-tx-delay": { factor: 1 },
+      "set-direct-tx-delay": { factor: 1 },
+      "set-rx-delay": { secs: 0 },
+      "set-airtime-factor": { factor: 1 },
+      "set-interference-threshold": { value: 0 },
+      "set-agc-reset-interval": { secs: 60 },
+      "set-multi-acks": { enabled: true },
+      "set-flood-advert-interval": { hours: 24 },
+      "set-advert-interval": { minutes: 120 },
+      "set-owner-info": { text: "hello" },
+      "set-adc-multiplier": { value: 1 },
+      "set-allow-read-only": { enabled: false },
+      "set-guest-password": { password: "pw" },
+      "set-private-key": { hex: "00".repeat(32) },
+      "start-ota": {},
+      clkreboot: {},
+      "set-time": { epochSecs: 1_700_000_000 },
+      powersaving: { enabled: false },
+      ver: {},
+      board: {},
+      clock: {},
+      neighbors: {},
+      "discover-neighbors": {},
+      "get-config": { key: "name" },
+      region: { sub: "status" },
+      gps: { sub: "status" },
+      sensor: { sub: "list" },
+    };
+
+    const missingSample: string[] = [];
+    const badParse: string[] = [];
+    const badPreview: string[] = [];
+    const badCli: string[] = [];
+    for (const [name, def] of Object.entries(ADMIN_COMMANDS)) {
+      const sample = samples[name];
+      if (sample === undefined) {
+        missingSample.push(name);
+        continue;
+      }
+      const parsed = def.params.safeParse(sample);
+      if (!parsed.success) {
+        badParse.push(`${name}: ${parsed.error.issues[0]?.message ?? "?"}`);
+        continue;
+      }
+      const preview = def.preview("TestNode", parsed.data);
+      if (typeof preview !== "string" || preview.length === 0) badPreview.push(name);
+      const cli = def.remoteCli(parsed.data);
+      const cliOk = Array.isArray(cli)
+        ? cli.length > 0 && cli.every((s) => typeof s === "string" && s.length > 0)
+        : typeof cli === "string" && cli.length > 0;
+      if (!cliOk) badCli.push(name);
+    }
+
+    expect(missingSample, "registry entries without a smoke sample").toEqual([]);
+    expect(badParse, "registry entries whose schema rejected the sample").toEqual([]);
+    expect(badPreview, "registry entries with empty preview").toEqual([]);
+    expect(badCli, "registry entries with empty remoteCli").toEqual([]);
   });
 
   it("maps risk tiers to annotations deterministically", () => {

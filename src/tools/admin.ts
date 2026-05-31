@@ -26,23 +26,46 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { adminOutputShape, digestAdmin } from "../format.js";
+import type { RiskTier } from "../service/admin.js";
 import { ADMIN_COMMANDS } from "../service/admin.js";
 import type { MeshService } from "../service/mesh-service.js";
 import { registerServiceTool } from "./register.js";
 
+/** Display order for tier headers in {@link commandCatalogue}. Risk-ascending. */
+const TIER_ORDER: readonly RiskTier[] = ["read", "benign", "config", "sensitive", "destructive"];
+
+/** Short human heading per tier, used by {@link commandCatalogue}. */
+const TIER_HEADING: Record<RiskTier, string> = {
+  read: "Read",
+  benign: "Benign",
+  config: "Config",
+  sensitive: "Sensitive (writes secrets / grants access)",
+  destructive: "Destructive (data/identity loss or reboot)",
+};
+
 /**
- * A one-line `name [tier, scope] — params` summary per command, so the tool's
- * description enumerates the whole surface (kept in lock-step with the registry).
- * Exported so the `meshcore://help` resource reuses the same generated catalogue.
+ * The full admin catalogue, grouped by risk tier. Each entry is one line:
+ * `<name> [<scope>] — <params>`. Reused verbatim by the `admin` tool's
+ * description and the `meshcore://help` document, so the surface that an agent
+ * discovers (tools.list + the pull-on-demand reference) stays in lock-step
+ * with the registry. Tier grouping makes destructive/sensitive commands easy
+ * to find without changing the source of truth.
  */
 export function commandCatalogue(): string {
-  return Object.values(ADMIN_COMMANDS)
-    .map((def) => {
+  const sections: string[] = [];
+  for (const tier of TIER_ORDER) {
+    const entries = Object.values(ADMIN_COMMANDS).filter((def) => def.tier === tier);
+    if (entries.length === 0) continue;
+    sections.push(`${TIER_HEADING[tier]}:`);
+    for (const def of entries) {
       const shape = paramSummary(def.params);
       const params = shape === "" ? "no params" : shape;
-      return `  • ${def.name} [${def.tier}, ${def.scope}] — ${params}`;
-    })
-    .join("\n");
+      const scope = def.scope === "remote-only" ? "remote" : "home+remote";
+      sections.push(`  • ${def.name} [${scope}] — ${params}`);
+    }
+    sections.push("");
+  }
+  return sections.join("\n").trimEnd();
 }
 
 /**

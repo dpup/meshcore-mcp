@@ -364,17 +364,546 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
       level: z
         .enum(PERMISSION_LEVELS)
         .nullable()
-        .describe("guest|read|readwrite|admin, or null to remove"),
+        .describe(
+          "guest|read|readwrite|admin, or null to revoke (downgrade to guest — " +
+            "the firmware has no explicit removal, only a level-0 demotion)",
+        ),
     }),
     preview: (node, p) =>
-      `Set ${p.pubKey}'s permission on ${node} to ${p.level ?? "remove"} (or remove). ` +
-      `⚠ 'admin' grants full control of ${node}.`,
-    // `setperm <pubkey> <0–3>`; omit the level ⇒ remove the entry.
+      `Set ${p.pubKey}'s permission on ${node} to ${p.level ?? "guest (revoke)"}.` +
+      (p.level === "admin" ? ` ⚠ 'admin' grants full control of ${node}.` : ""),
+    // Firmware parses `setperm <pubkey> <0–3>` via `strchr(' ')` — a bare
+    // `setperm <pk>` with no space + level returns "Err - bad params". There
+    // is no explicit removal form; setting permission 0 (guest) is the
+    // de-facto revoke. `level: null` therefore emits level 0.
     remoteCli: (p) => {
       const key = p.pubKey.toLowerCase();
-      return p.level === null
-        ? `setperm ${key}`
-        : `setperm ${key} ${PERMISSION_LEVEL_VALUE[p.level]}`;
+      const value = p.level === null ? 0 : PERMISSION_LEVEL_VALUE[p.level];
+      return `setperm ${key} ${value}`;
+    },
+  }),
+
+  // ---------- routing / flood control ------------------------------------
+
+  "set-path-hash-mode": define({
+    name: "set-path-hash-mode",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      mode: coerce.numeric(
+        (s) => s.int().min(0).max(2),
+        "path-hash mode 0|1|2 (1-byte/2-byte/3-byte advertised prefixes; 64/32/21 flood cap respectively)",
+      ),
+    }),
+    preview: (node, p) =>
+      `Set ${node} path-hash mode to ${p.mode}. ⚠ Changes advertised prefix length and flood cap — must match the mesh's other repeaters.`,
+    remoteCli: (p) => `set path.hash.mode ${p.mode}`,
+  }),
+
+  "set-loop-detect": define({
+    name: "set-loop-detect",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      level: z.enum(["off", "minimal", "moderate", "strict"]).describe("loop-detection aggressiveness"),
+    }),
+    preview: (node, p) =>
+      `Set ${node} loop-detect to ${p.level}. Drops flood packets whose path-hash already appears N times — anti-storm.`,
+    remoteCli: (p) => `set loop.detect ${p.level}`,
+  }),
+
+  "set-flood-max": define({
+    name: "set-flood-max",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      hops: coerce.numeric((s) => s.int().min(0).max(64), "max flood hop count, 0–64"),
+    }),
+    preview: (node, p) =>
+      `Set ${node} flood hop-count limit to ${p.hops}. ⚠ Setting too low silently fragments the mesh.`,
+    remoteCli: (p) => `set flood.max ${p.hops}`,
+  }),
+
+  "set-radio-rxgain": define({
+    name: "set-radio-rxgain",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ enabled: z.boolean().describe("true to enable boosted RX gain") }),
+    preview: (node, p) =>
+      `Turn boosted RX gain ${p.enabled ? "on" : "off"} on ${node} (SX1262/SX1268 only — silently ignored on other radios).`,
+    remoteCli: (p) => `set radio.rxgain ${p.enabled ? "on" : "off"}`,
+  }),
+
+  tempradio: define({
+    name: "tempradio",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      freqMhz: coerce.freqMhz,
+      bwKhz: coerce.bwKhz,
+      sf: coerce.sf,
+      cr: coerce.cr,
+      timeoutMins: coerce.numeric((s) => s.int().min(1), "auto-revert timeout in minutes (≥1)"),
+    }),
+    preview: (node, p) =>
+      `Apply radio params to ${node}: ${p.freqMhz} MHz / ${p.bwKhz} kHz / SF${p.sf} / CR${p.cr} for ${p.timeoutMins} min, then auto-revert. The safe radio-test escape hatch — recovers itself.`,
+    remoteCli: (p) =>
+      `tempradio ${p.freqMhz},${p.bwKhz},${p.sf},${p.cr},${p.timeoutMins}`,
+  }),
+
+  "set-tx-delay": define({
+    name: "set-tx-delay",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ factor: coerce.numeric((s) => s.min(0).max(2), "TX delay factor 0–2") }),
+    preview: (node, p) => `Set ${node} flood TX delay factor to ${p.factor}.`,
+    remoteCli: (p) => `set txdelay ${p.factor}`,
+  }),
+
+  "set-direct-tx-delay": define({
+    name: "set-direct-tx-delay",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ factor: coerce.numeric((s) => s.min(0).max(2), "direct TX delay factor 0–2") }),
+    preview: (node, p) => `Set ${node} direct-traffic TX delay factor to ${p.factor}.`,
+    remoteCli: (p) => `set direct.txdelay ${p.factor}`,
+  }),
+
+  "set-rx-delay": define({
+    name: "set-rx-delay",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ secs: coerce.numeric((s) => s.min(0).max(20), "RX processing delay 0–20s") }),
+    preview: (node, p) => `Set ${node} RX processing delay to ${p.secs}s (experimental).`,
+    remoteCli: (p) => `set rxdelay ${p.secs}`,
+  }),
+
+  "set-airtime-factor": define({
+    name: "set-airtime-factor",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ factor: coerce.numeric((s) => s.min(0).max(9), "airtime factor 0–9") }),
+    preview: (node, p) =>
+      `Set ${node} airtime factor to ${p.factor} (legacy; prefer set-dutycycle on firmware ≥1.15).`,
+    remoteCli: (p) => `set af ${p.factor}`,
+  }),
+
+  "set-interference-threshold": define({
+    name: "set-interference-threshold",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ value: coerce.numeric((s) => s, "interference threshold (firmware-defined units)") }),
+    preview: (node, p) => `Set ${node} local interference threshold to ${p.value}.`,
+    remoteCli: (p) => `set int.thresh ${p.value}`,
+  }),
+
+  "set-agc-reset-interval": define({
+    name: "set-agc-reset-interval",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      secs: coerce.numeric(
+        (s) => s.int().min(0),
+        "AGC reset interval in seconds; firmware rounds to a multiple of 4 (0 disables)",
+      ),
+    }),
+    preview: (node, p) =>
+      `Set ${node} AGC reset interval to ${p.secs}s ${p.secs === 0 ? "(disabled)" : ""}.`,
+    remoteCli: (p) => `set agc.reset.interval ${p.secs}`,
+  }),
+
+  "set-multi-acks": define({
+    name: "set-multi-acks",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ enabled: z.boolean().describe("true to enable multi-ack support") }),
+    preview: (node, p) => `Turn multi-ack support ${p.enabled ? "on" : "off"} on ${node}.`,
+    remoteCli: (p) => `set multi.acks ${p.enabled ? 1 : 0}`,
+  }),
+
+  "set-flood-advert-interval": define({
+    name: "set-flood-advert-interval",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      hours: coerce.numeric((s) => s.int().min(3).max(168), "flood-advert interval in hours, 3–168"),
+    }),
+    preview: (node, p) => `Set ${node} flood-advert interval to ${p.hours}h.`,
+    remoteCli: (p) => `set flood.advert.interval ${p.hours}`,
+  }),
+
+  "set-advert-interval": define({
+    name: "set-advert-interval",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      minutes: coerce.numeric(
+        (s) => s.int().min(60).max(240),
+        "zero-hop advert interval in minutes, 60–240; firmware stores it as /2 (use even values)",
+      ),
+    }),
+    preview: (node, p) => `Set ${node} zero-hop advert interval to ${p.minutes}min.`,
+    remoteCli: (p) => `set advert.interval ${p.minutes}`,
+  }),
+
+  "set-owner-info": define({
+    name: "set-owner-info",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      text: z.string().max(140).describe("owner info shown in adverts; '|' in the string becomes a newline"),
+    }),
+    preview: (node, p) =>
+      `Set ${node} owner info to "${p.text}" (\`|\` rendered as newline by the firmware).`,
+    remoteCli: (p) => `set owner.info ${p.text}`,
+  }),
+
+  "set-adc-multiplier": define({
+    name: "set-adc-multiplier",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({
+      value: coerce.numeric((s) => s.min(0).max(10), "ADC multiplier 0.0–10.0 (0 = board default)"),
+    }),
+    preview: (node, p) => `Set ${node} battery-ADC multiplier to ${p.value}.`,
+    remoteCli: (p) => `set adc.multiplier ${p.value}`,
+  }),
+
+  "set-allow-read-only": define({
+    name: "set-allow-read-only",
+    tier: "sensitive",
+    scope: "remote-only",
+    params: z.object({ enabled: z.boolean().describe("true to enable read-only mode") }),
+    preview: (node, p) =>
+      `Turn ${node}'s read-only mode ${p.enabled ? "on" : "off"}.` +
+      (p.enabled ? " ⚠ Blocks subsequent write ops from any client." : ""),
+    remoteCli: (p) => `set allow.read.only ${p.enabled ? "on" : "off"}`,
+  }),
+
+  // ---------- secrets / identity ------------------------------------------
+
+  "set-guest-password": define({
+    name: "set-guest-password",
+    tier: "sensitive",
+    scope: "remote-only",
+    secret: true,
+    params: z.object({ password: z.string().max(15).describe("new guest password, ≤15 chars") }),
+    preview: (node) =>
+      `Change ${node}'s guest password (read-only tier). ⚠ Sent over the mesh as CliData and echoed in the reply; secret — must not be retained in the traffic buffer.`,
+    remoteCli: (p) => `set guest.password ${p.password}`,
+  }),
+
+  "set-private-key": define({
+    name: "set-private-key",
+    tier: "destructive",
+    scope: "remote-only",
+    secret: true,
+    params: z.object({
+      hex: z
+        .string()
+        .regex(/^[0-9a-fA-F]{64}$/, "expected a 32-byte hex private key (64 chars)")
+        .describe("new private key as 64 hex chars (32 bytes)"),
+    }),
+    preview: (node) =>
+      `Rotate ${node}'s private key (changes its public key + identity). ⚠ Destructive: all existing contacts lose their reference to ${node}; the node reboots.`,
+    remoteCli: (p) => `set prv.key ${p.hex.toLowerCase()}`,
+  }),
+
+  // ---------- lifecycle ---------------------------------------------------
+
+  "start-ota": define({
+    name: "start-ota",
+    tier: "sensitive",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) =>
+      `Trigger an OTA firmware update on ${node} (uses its node_name to look up the image). ⚠ The node will reboot; if the image is wrong, recovery may need serial.`,
+    remoteCli: () => "start ota",
+  }),
+
+  clkreboot: define({
+    name: "clkreboot",
+    tier: "destructive",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) =>
+      `Reset ${node}'s RTC to its fixed epoch (2024-05-15) and reboot. ⚠ Loses time-sync until a clock-sync arrives.`,
+    remoteCli: () => "clkreboot",
+  }),
+
+  "set-time": define({
+    name: "set-time",
+    tier: "benign",
+    scope: "remote-only",
+    params: z.object({
+      epochSecs: coerce.numeric(
+        (s) => s.int().min(0),
+        "absolute time as epoch seconds (firmware rejects backwards clocks)",
+      ),
+    }),
+    preview: (node, p) =>
+      `Set ${node}'s RTC to epoch ${p.epochSecs} (firmware ERR: if backwards from its current clock).`,
+    remoteCli: (p) => `time ${p.epochSecs}`,
+  }),
+
+  powersaving: define({
+    name: "powersaving",
+    tier: "config",
+    scope: "remote-only",
+    params: z.object({ enabled: z.boolean().describe("true to enable sleep-between-TX power saving") }),
+    preview: (node, p) =>
+      `Turn power-saving ${p.enabled ? "on" : "off"} on ${node} (repeater-only; sleeps between transmits).`,
+    remoteCli: (p) => `powersaving ${p.enabled ? "on" : "off"}`,
+  }),
+
+  // ---------- reads ------------------------------------------------------
+  // The reply field carries the device's structured text; agents should
+  // parse it. These are tier "read" — the only commands in that tier.
+
+  ver: define({
+    name: "ver",
+    tier: "read",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) => `Read ${node}'s firmware version + build date.`,
+    remoteCli: () => "ver",
+  }),
+
+  board: define({
+    name: "board",
+    tier: "read",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) => `Read ${node}'s hardware board name.`,
+    remoteCli: () => "board",
+  }),
+
+  clock: define({
+    name: "clock",
+    tier: "read",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) => `Read ${node}'s current device clock (HH:MM - D/M/Y UTC).`,
+    remoteCli: () => "clock",
+  }),
+
+  neighbors: define({
+    name: "neighbors",
+    tier: "read",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) =>
+      `List ${node}'s recent neighbours (up to 8) — each as \`{pk-prefix}:{ts}:{snr*4}\`. The H15 topology data source.`,
+    remoteCli: () => "neighbors",
+  }),
+
+  "discover-neighbors": define({
+    name: "discover-neighbors",
+    tier: "benign",
+    scope: "remote-only",
+    params: NO_PARAMS,
+    preview: (node) =>
+      `Broadcast a node-discovery request from ${node}. Replies populate its neighbour list (read it back with \`neighbors\`).`,
+    remoteCli: () => "discover.neighbors",
+  }),
+
+  "get-config": define({
+    name: "get-config",
+    tier: "read",
+    scope: "remote-only",
+    params: z.object({
+      key: z
+        .enum([
+          // Settable keys (mirrors of set-* commands).
+          "dutycycle",
+          "af",
+          "int.thresh",
+          "agc.reset.interval",
+          "multi.acks",
+          "allow.read.only",
+          "flood.advert.interval",
+          "advert.interval",
+          "guest.password",
+          "name",
+          "repeat",
+          "radio.rxgain",
+          "radio",
+          "lat",
+          "lon",
+          "rxdelay",
+          "txdelay",
+          "flood.max",
+          "direct.txdelay",
+          "owner.info",
+          "path.hash.mode",
+          "loop.detect",
+          "tx",
+          "adc.multiplier",
+          // Read-only.
+          "public.key",
+          "role",
+          "freq",
+        ])
+        .describe(
+          "config key to read; `prv.key` is intentionally excluded (firmware blocks remote read for security)",
+        ),
+    }),
+    preview: (node, p) => `Read ${node}'s \`${p.key}\` config value.`,
+    remoteCli: (p) => `get ${p.key}`,
+  }),
+
+  // ---------- subsystems -------------------------------------------------
+  // region / gps / sensor are multi-subcommand verbs; one ADMIN entry each
+  // with a discriminated-union param. Conditional-compile features (GPS,
+  // sensor): the device returns an error string if the feature isn't built.
+
+  region: define({
+    name: "region",
+    tier: "config",
+    scope: "remote-only",
+    params: z
+      .discriminatedUnion("sub", [
+        z.object({ sub: z.literal("status") }).describe("export the region map (up to 160 chars)"),
+        z.object({ sub: z.literal("save") }).describe("persist regions to flash"),
+        z
+          .object({ sub: z.literal("allowf"), region: z.string() })
+          .describe("clear DENY_FLOOD on a region (prefix-matched)"),
+        z
+          .object({ sub: z.literal("denyf"), region: z.string() })
+          .describe("set DENY_FLOOD on a region (prefix-matched)"),
+        z
+          .object({ sub: z.literal("get"), region: z.string() })
+          .describe("read a region's info (prefix-matched)"),
+        z
+          .object({ sub: z.literal("home-get") })
+          .describe("read the home region"),
+        z
+          .object({ sub: z.literal("home-set"), region: z.string() })
+          .describe("set the home region (auto-creates if needed)"),
+        z
+          .object({ sub: z.literal("default-get") })
+          .describe("read the default region"),
+        z
+          .object({ sub: z.literal("default-set"), region: z.string() })
+          .describe("set the default region (auto-creates if needed; use '<null>' to clear)"),
+        z
+          .object({ sub: z.literal("put"), name: z.string(), parent: z.string().optional() })
+          .describe("create a region (optional parent; defaults to wildcard)"),
+        z
+          .object({ sub: z.literal("remove"), region: z.string() })
+          .describe("remove an empty region (exact name match)"),
+        z
+          .object({ sub: z.enum(["list-allowed", "list-denied"]) })
+          .describe("list regions by DENY_FLOOD state"),
+      ])
+      .describe(
+        "region subcommand — `load` is multi-line interactive (serial-only) and not exposed",
+      ),
+    preview: (node, p) => {
+      const r = "region" in p ? ` "${p.region}"` : "";
+      return `Run region.${p.sub}${r} on ${node}.`;
+    },
+    remoteCli: (p) => {
+      switch (p.sub) {
+        case "status":
+          return "region";
+        case "save":
+          return "region save";
+        case "allowf":
+          return `region allowf ${p.region}`;
+        case "denyf":
+          return `region denyf ${p.region}`;
+        case "get":
+          return `region get ${p.region}`;
+        case "home-get":
+          return "region home";
+        case "home-set":
+          return `region home set ${p.region}`;
+        case "default-get":
+          return "region default";
+        case "default-set":
+          return `region default set ${p.region}`;
+        case "put":
+          return p.parent === undefined
+            ? `region put ${p.name}`
+            : `region put ${p.name} ${p.parent}`;
+        case "remove":
+          return `region remove ${p.region}`;
+        case "list-allowed":
+          return "region list allowed";
+        case "list-denied":
+          return "region list denied";
+      }
+    },
+  }),
+
+  gps: define({
+    name: "gps",
+    tier: "config",
+    scope: "remote-only",
+    params: z
+      .discriminatedUnion("sub", [
+        z.object({ sub: z.literal("status") }).describe("read GPS state (on/off, fix, sat count)"),
+        z.object({ sub: z.literal("on") }).describe("enable GPS"),
+        z.object({ sub: z.literal("off") }).describe("disable GPS"),
+        z.object({ sub: z.literal("sync") }).describe("sync device clock from GPS"),
+        z.object({ sub: z.literal("setloc") }).describe("copy current GPS fix to node lat/lon prefs"),
+        z.object({ sub: z.literal("advert-get") }).describe("read advert-location policy"),
+        z
+          .object({ sub: z.literal("advert-set"), policy: z.enum(["none", "share", "prefs"]) })
+          .describe("set advert-location policy"),
+      ])
+      .describe(
+        "GPS subcommand — requires firmware compiled with ENV_INCLUDE_GPS; returns an error string otherwise",
+      ),
+    preview: (node, p) => `Run gps.${p.sub} on ${node}.`,
+    remoteCli: (p) => {
+      switch (p.sub) {
+        case "status":
+          return "gps";
+        case "on":
+          return "gps on";
+        case "off":
+          return "gps off";
+        case "sync":
+          return "gps sync";
+        case "setloc":
+          return "gps setloc";
+        case "advert-get":
+          return "gps advert";
+        case "advert-set":
+          return `gps advert set ${p.policy}`;
+      }
+    },
+  }),
+
+  sensor: define({
+    name: "sensor",
+    tier: "config",
+    scope: "remote-only",
+    params: z
+      .discriminatedUnion("sub", [
+        z.object({ sub: z.literal("get"), key: z.string() }).describe("read a sensor setting"),
+        z
+          .object({ sub: z.literal("set"), key: z.string(), value: z.string() })
+          .describe("set a custom sensor variable"),
+        z
+          .object({ sub: z.literal("list"), startIndex: z.number().int().min(0).optional() })
+          .describe("list all sensor settings (paginated, 134-char chunks)"),
+      ])
+      .describe(
+        "sensor subcommand — requires firmware compiled with sensor support; returns an error string otherwise",
+      ),
+    preview: (node, p) => `Run sensor.${p.sub} on ${node}.`,
+    remoteCli: (p) => {
+      switch (p.sub) {
+        case "get":
+          return `sensor get ${p.key}`;
+        case "set":
+          return `sensor set ${p.key} ${p.value}`;
+        case "list":
+          return p.startIndex === undefined ? "sensor list" : `sensor list ${p.startIndex}`;
+      }
     },
   }),
 });
