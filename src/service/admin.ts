@@ -1,9 +1,10 @@
 /**
  * The enumerated, curated `admin` command set (execution plan §9, PRD §5.1, §8.1).
  *
- * `admin` is **never** free-form text. This module is the single source of truth
- * for what an agent may do to a node: a frozen registry of 16 typed commands,
- * each declaring
+ * `admin` is **never** free-form text. This module is the single source of
+ * truth for what an agent may do to a node: a frozen registry of typed
+ * commands (currently 48, grouped by risk tier in `commandCatalogue`), each
+ * declaring
  *
  * - a **risk `tier`** (`read | benign | config | sensitive | destructive`) →
  *   MCP annotations via {@link annotationsForTier} (deterministic, AGENTS.md
@@ -14,7 +15,7 @@
  * - a **Zod `params` schema** the `admin` tool validates the caller's params
  *   against;
  * - a **`preview(node, params)`** that synthesizes the dry-run intent text
- *   *without contacting the device* (PRD §5.3) — §9's per-command strings;
+ *   *without contacting the device* (PRD §5.3);
  * - an optional **`home(client, node, params)`** structured `MeshCoreClient`
  *   call (present for `home+remote` commands, absent for `remote-only`); and
  * - a **`remoteCli(params)`** producing the repeater CLI string(s) sent as
@@ -23,6 +24,33 @@
  * Dispatch (the home-vs-remote routing, login→CliData→reply handshake, and the
  * reply correlation) lives in {@link MeshService.runAdmin}; this module only
  * declares *what* each command is.
+ *
+ * ### Source of truth for the CLI surface
+ *
+ * The remote-CLI verbs and `set <key>` keys are kept in lock-step with the
+ * upstream firmware by hand. The current registry was verified against
+ * **meshcore-dev/MeshCore@c940ea5** (`src/helpers/CommonCLI.cpp` for the
+ * top-level verbs + `set`/`get` keys, `examples/simple_repeater/MyMesh.cpp`
+ * for the repeater-specific verbs `setperm` / `discover.neighbors`). Bump this
+ * marker whenever you reconcile new firmware. Codegen / a CI drift check that
+ * pulls from upstream is a deferred 0.2.0 item — see TODOs below.
+ *
+ * ### Deferred (0.2.0)
+ *
+ * - **Time-command consolidation:** `sync-time`, `set-time`, `clock`,
+ *   `clkreboot` are four entries at different tiers. A unified `time` command
+ *   with `sub: read | sync | set-epoch | reset-and-reboot` would shrink the
+ *   surface, but requires letting one ADMIN_COMMANDS entry carry per-sub
+ *   tiers (today tier is one-per-command). Worth tackling alongside any
+ *   AdminCommandDef refactor.
+ * - **Schema helpers:** the `coerce.numeric((s) => s.int().min(N).max(M), …)`
+ *   pattern repeats ~12 times. Extract `secs()`, `pct()`, `hops()`, `dbm()`
+ *   so range + units live at the call site, named.
+ * - **File split:** at 48 entries this file is ~1000 lines. Splitting into
+ *   `commands/{routing,secrets,reads,subsystems,lifecycle}.ts` would reduce
+ *   merge conflicts as the catalogue grows. Defer until growth justifies it.
+ * - **Firmware codegen / CI drift check:** parse `CommonCLI.cpp`
+ *   programmatically and fail the build when our registry doesn't match.
  */
 
 import type { MeshCoreClient } from "@dpup/meshcore-ts";
@@ -155,7 +183,8 @@ function define<S extends z.ZodType>(
 }
 
 // ---------------------------------------------------------------------------
-// The registry (execution plan §9 — the 16 commands)
+// The registry — every enumerated admin command (originally the 16 of
+// execution plan §9; expanded as we cover more of the upstream CLI surface).
 // ---------------------------------------------------------------------------
 
 /**
@@ -612,8 +641,13 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
   // ---------- lifecycle ---------------------------------------------------
 
   "start-ota": define({
+    // `destructive` (not `sensitive`) — the sensitive tier maps to
+    // `idempotentHint: true`, which is wrong for OTA: re-running with a bad
+    // image doesn't restore state, it makes things worse. Destructive maps
+    // to `idempotentHint: false`, matching reality. The brick risk in the
+    // preview matches the tier.
     name: "start-ota",
-    tier: "sensitive",
+    tier: "destructive",
     scope: "remote-only",
     params: NO_PARAMS,
     preview: (node) =>
@@ -763,38 +797,29 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     scope: "remote-only",
     params: z
       .discriminatedUnion("sub", [
-        z.object({ sub: z.literal("status") }).describe("export the region map (up to 160 chars)"),
-        z.object({ sub: z.literal("save") }).describe("persist regions to flash"),
-        z
-          .object({ sub: z.literal("allowf"), region: z.string() })
-          .describe("clear DENY_FLOOD on a region (prefix-matched)"),
-        z
-          .object({ sub: z.literal("denyf"), region: z.string() })
-          .describe("set DENY_FLOOD on a region (prefix-matched)"),
-        z
-          .object({ sub: z.literal("get"), region: z.string() })
-          .describe("read a region's info (prefix-matched)"),
-        z
-          .object({ sub: z.literal("home-get") })
-          .describe("read the home region"),
-        z
-          .object({ sub: z.literal("home-set"), region: z.string() })
-          .describe("set the home region (auto-creates if needed)"),
-        z
-          .object({ sub: z.literal("default-get") })
-          .describe("read the default region"),
-        z
-          .object({ sub: z.literal("default-set"), region: z.string() })
-          .describe("set the default region (auto-creates if needed; use '<null>' to clear)"),
-        z
-          .object({ sub: z.literal("put"), name: z.string(), parent: z.string().optional() })
-          .describe("create a region (optional parent; defaults to wildcard)"),
-        z
-          .object({ sub: z.literal("remove"), region: z.string() })
-          .describe("remove an empty region (exact name match)"),
-        z
-          .object({ sub: z.enum(["list-allowed", "list-denied"]) })
-          .describe("list regions by DENY_FLOOD state"),
+        z.object({ sub: z.literal("status") }),
+        z.object({ sub: z.literal("save") }),
+        z.object({ sub: z.literal("allowf"), region: z.string().describe("region name (prefix-matched)") }),
+        z.object({ sub: z.literal("denyf"), region: z.string().describe("region name (prefix-matched)") }),
+        z.object({ sub: z.literal("get"), region: z.string().describe("region name (prefix-matched)") }),
+        z.object({ sub: z.literal("home-get") }),
+        z.object({ sub: z.literal("home-set"), region: z.string().describe("region name to set as home") }),
+        z.object({ sub: z.literal("default-get") }),
+        z.object({
+          sub: z.literal("default-set"),
+          region: z.string().describe("region name to set as default; use '<null>' to clear"),
+        }),
+        z.object({
+          sub: z.literal("put"),
+          name: z.string().describe("new region name"),
+          parent: z.string().optional().describe("optional parent region; defaults to wildcard"),
+        }),
+        z.object({ sub: z.literal("remove"), region: z.string().describe("region name (exact match)") }),
+        // Split the list variants into two literal branches — keeps the
+        // discriminator a clean union of z.literal so paramSummary renders
+        // every sub-action by name (a single z.enum branch collapses to one).
+        z.object({ sub: z.literal("list-allowed") }),
+        z.object({ sub: z.literal("list-denied") }),
       ])
       .describe(
         "region subcommand — `load` is multi-line interactive (serial-only) and not exposed",
@@ -843,15 +868,16 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     scope: "remote-only",
     params: z
       .discriminatedUnion("sub", [
-        z.object({ sub: z.literal("status") }).describe("read GPS state (on/off, fix, sat count)"),
-        z.object({ sub: z.literal("on") }).describe("enable GPS"),
-        z.object({ sub: z.literal("off") }).describe("disable GPS"),
-        z.object({ sub: z.literal("sync") }).describe("sync device clock from GPS"),
-        z.object({ sub: z.literal("setloc") }).describe("copy current GPS fix to node lat/lon prefs"),
-        z.object({ sub: z.literal("advert-get") }).describe("read advert-location policy"),
-        z
-          .object({ sub: z.literal("advert-set"), policy: z.enum(["none", "share", "prefs"]) })
-          .describe("set advert-location policy"),
+        z.object({ sub: z.literal("status") }),
+        z.object({ sub: z.literal("on") }),
+        z.object({ sub: z.literal("off") }),
+        z.object({ sub: z.literal("sync") }),
+        z.object({ sub: z.literal("setloc") }),
+        z.object({ sub: z.literal("advert-get") }),
+        z.object({
+          sub: z.literal("advert-set"),
+          policy: z.enum(["none", "share", "prefs"]).describe("none | share | prefs"),
+        }),
       ])
       .describe(
         "GPS subcommand — requires firmware compiled with ENV_INCLUDE_GPS; returns an error string otherwise",
@@ -883,13 +909,21 @@ export const ADMIN_COMMANDS: Readonly<Record<string, AdminCommandDef>> = Object.
     scope: "remote-only",
     params: z
       .discriminatedUnion("sub", [
-        z.object({ sub: z.literal("get"), key: z.string() }).describe("read a sensor setting"),
-        z
-          .object({ sub: z.literal("set"), key: z.string(), value: z.string() })
-          .describe("set a custom sensor variable"),
-        z
-          .object({ sub: z.literal("list"), startIndex: z.number().int().min(0).optional() })
-          .describe("list all sensor settings (paginated, 134-char chunks)"),
+        z.object({ sub: z.literal("get"), key: z.string().describe("sensor setting key to read") }),
+        z.object({
+          sub: z.literal("set"),
+          key: z.string().describe("sensor setting key to write"),
+          value: z.string().describe("new value (string-typed; firmware parses per setting)"),
+        }),
+        z.object({
+          sub: z.literal("list"),
+          startIndex: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe("optional pagination start index (134-char chunks)"),
+        }),
       ])
       .describe(
         "sensor subcommand — requires firmware compiled with sensor support; returns an error string otherwise",

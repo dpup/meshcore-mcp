@@ -7,6 +7,7 @@ import {
   scenario,
 } from "@dpup/meshcore-sim";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { makeSimServer } from "./helpers/sim-server.js";
 import { ADMIN_COMMANDS, annotationsForTier } from "../src/index.js";
@@ -385,6 +386,40 @@ describe("ADMIN_COMMANDS registry (unit)", () => {
     expect(badParse, "registry entries whose schema rejected the sample").toEqual([]);
     expect(badPreview, "registry entries with empty preview").toEqual([]);
     expect(badCli, "registry entries with empty remoteCli").toEqual([]);
+  });
+
+  it("guard: every command with a credential-named param has `secret: true`", () => {
+    // Prevents the footgun where someone adds a new command with a
+    // `password` / `key` / `secret` / `token` param but forgets to opt in
+    // to secret handling — without the flag, the device's echo would land in
+    // the traffic buffer + the `reply` field. The existing secret-bearing
+    // commands (set-admin-password, set-guest-password, set-private-key)
+    // anchor the pattern.
+    const SECRET_KEY_PATTERN = /password|secret|token|prv\.?key|privatekey/i;
+
+    function collectFieldNames(schema: z.ZodTypeAny, out: string[]): void {
+      if (schema instanceof z.ZodObject) {
+        const shape = schema.shape as Record<string, z.ZodTypeAny>;
+        for (const k of Object.keys(shape)) out.push(k);
+      } else if (schema instanceof z.ZodDiscriminatedUnion) {
+        for (const branch of schema.options) collectFieldNames(branch, out);
+      }
+    }
+
+    const missingSecretFlag: string[] = [];
+    for (const [name, def] of Object.entries(ADMIN_COMMANDS)) {
+      const fieldNames: string[] = [];
+      collectFieldNames(def.params, fieldNames);
+      // The COMMAND NAME also counts — set-private-key uses param `hex` but
+      // the command itself signals the secret intent.
+      const hit = fieldNames.some((n) => SECRET_KEY_PATTERN.test(n)) ||
+        SECRET_KEY_PATTERN.test(name);
+      if (hit && def.secret !== true) missingSecretFlag.push(name);
+    }
+    expect(
+      missingSecretFlag,
+      "commands with credential-named params (or names) must set `secret: true`",
+    ).toEqual([]);
   });
 
   it("maps risk tiers to annotations deterministically", () => {

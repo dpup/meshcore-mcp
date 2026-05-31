@@ -76,11 +76,42 @@ export function commandCatalogue(): string {
  * validate. A non-object schema (e.g. the empty-params commands) yields `""`.
  */
 function paramSummary(schema: z.ZodTypeAny): string {
+  // Discriminated-union schemas (region / gps / sensor) are not ZodObjects —
+  // they're ZodDiscriminatedUnion. Render them by listing the discriminator
+  // key, every literal value it can take, and the extra params each branch
+  // adds beyond the discriminator. Without this, the catalogue rendered
+  // these commands as 'no params', hiding their entire subcommand surface.
+  if (schema instanceof z.ZodDiscriminatedUnion) {
+    return summarizeDiscriminatedUnion(schema);
+  }
   if (!(schema instanceof z.ZodObject)) return "";
   const shape = schema.shape as Record<string, z.ZodTypeAny>;
   const keys = Object.keys(shape);
   if (keys.length === 0) return "";
   return keys.map((k) => `${k}: ${describeField(shape[k])}`).join(", ");
+}
+
+/**
+ * Render a {@link z.ZodDiscriminatedUnion} as `<disc>: <a> [<a-extras>] | <b>
+ * [<b-extras>] | …`. For each branch (a `ZodObject`), list the literal value
+ * of the discriminator, then any *additional* params the branch carries
+ * beyond the discriminator itself. Keeps the agent's mental model: "pick one
+ * sub-action, then provide its arguments."
+ */
+function summarizeDiscriminatedUnion(
+  schema: z.ZodDiscriminatedUnion<string, z.ZodObject<z.ZodRawShape>[]>,
+): string {
+  const disc = schema.discriminator;
+  const branches = schema.options.map((branch) => {
+    const shape = branch.shape as Record<string, z.ZodTypeAny>;
+    const value = (shape[disc] as { value?: unknown } | undefined)?.value;
+    const valueText = typeof value === "string" ? value : JSON.stringify(value);
+    const extraKeys = Object.keys(shape).filter((k) => k !== disc);
+    if (extraKeys.length === 0) return valueText;
+    const extras = extraKeys.map((k) => `${k}: ${describeField(shape[k])}`).join(", ");
+    return `${valueText} (${extras})`;
+  });
+  return `${disc}: ${branches.join(" | ")}`;
 }
 
 /**
