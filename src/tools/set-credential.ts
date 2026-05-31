@@ -35,17 +35,22 @@ export function registerSetCredential(server: McpServer, service: MeshService): 
       description:
         "Persist the password the server will use to log into `node` for " +
         "subsequent `admin` and remote `get_node_health` calls. Use this when " +
-        "you've learned a repeater's admin password out of band (e.g. via DM) " +
-        "and need the server to remember it across restarts. This is **the " +
+        "you've learned a repeater's password out of band (e.g. via DM) and " +
+        "need the server to remember it across restarts. This is **the " +
         "server's local credential**, not the node's password — it does not " +
         "send anything over the mesh. The node must already be known (in the " +
         "contact list) — a typo'd name is rejected so credentials don't " +
         "silently land under a key that's never looked up. Overwrites any " +
         "existing entry. The password (max 256 chars) is stored in the " +
         "credentials file under `MESHCORE_STATE_DIR` with `0600` permissions, " +
-        "and is never echoed in the tool result. Separate from the " +
-        "`set-admin-password` admin command (which changes the node's own " +
-        "password).",
+        "and is never echoed in the tool result. The password is opaque to " +
+        "the server: the device unlocks **guest** (read-only) or **admin** " +
+        "(full) depending on which it matches — store the admin password " +
+        "when you have it, since it covers reads too. If a later `admin` " +
+        "command comes back with `ERR:` in `reply`, the stored credential is " +
+        "likely guest-tier; overwrite via `set_credential` if you have the " +
+        "admin password. Separate from the `set-admin-password` admin " +
+        "command (which changes the node's own password).",
       inputSchema: {
         node: z
           .string()
