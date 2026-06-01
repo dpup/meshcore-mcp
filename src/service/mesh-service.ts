@@ -928,7 +928,7 @@ export class MeshService {
    * (a `MeshCoreError`), which propagates for the tool layer to format.
    */
   async runAdmin(
-    node: string,
+    node: string | undefined,
     command: string,
     params: unknown,
     dryRun: boolean,
@@ -955,18 +955,26 @@ export class MeshService {
     }
     const p = parsed.data;
 
+    // Resolve `node === undefined` to the home node's name — supports the
+    // 0.1.5 unwrapped admin tools (`reboot_node` etc.) where `node` is
+    // optional and omitting it means "target home". Existing callers that
+    // pass a string still work unchanged. The selfInfo lookup is needed
+    // anyway for the home-vs-remote check below; doing it up front means
+    // dry-runs of unwrapped tools also get a meaningful preview node name.
+    const self = await this.request(() => this.client.getSelfInfo());
+    const resolvedNode = node ?? self.name;
+
     if (dryRun) {
       return {
         command,
         tier: def.tier,
         annotations: annotationsForTier(def.tier),
         dryRun: true,
-        preview: def.preview(node, p),
+        preview: def.preview(resolvedNode, p),
       };
     }
 
-    const self = await this.request(() => this.client.getSelfInfo());
-    const isHome = this.resolver.isHome(node, self);
+    const isHome = this.resolver.isHome(resolvedNode, self);
 
     // Home dispatch: only when the node is home, the command is home-reachable,
     // and a structured path exists.
@@ -979,14 +987,14 @@ export class MeshService {
         // Tell the agent the actual situation + actionable alternatives.
         throw new AdminCommandError(
           `"${command}" is a repeater-firmware CLI verb; the local node ` +
-            `"${node}" is a companion, which doesn't implement it. To run it ` +
+            `"${resolvedNode}" is a companion, which doesn't implement it. To run it ` +
             `against a repeater, target the repeater by name as a remote ` +
             `contact (e.g. \`admin <repeater-name> ${command} …\`). To ` +
             `configure the local companion's CLI directly, use the device's ` +
             `serial console.`,
         );
       }
-      await def.home(this.client, node, p);
+      await def.home(this.client, resolvedNode, p);
       return {
         command,
         tier: def.tier,
@@ -997,7 +1005,7 @@ export class MeshService {
     }
 
     // Remote dispatch: login → CliData → await reply.
-    return this.runAdminRemote(node, def, p);
+    return this.runAdminRemote(resolvedNode, def, p);
   }
 
   // --- internals ---------------------------------------------------------
