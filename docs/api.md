@@ -2074,6 +2074,18 @@ and which optional fields are populated.
 
 #### Properties
 
+##### autoAddContacts?
+
+```ts
+optional autoAddContacts?: boolean;
+```
+
+Whether new contacts heard via adverts are added automatically —
+**home node only** (companion `getSelfInfo`'s `manualAddContacts`,
+inverted). The setting the [MeshService.setAutoAddContacts](#setautoaddcontacts)
+tool toggles; surfacing it here lets an agent read current state
+before changing it.
+
 ##### battery?
 
 ```ts
@@ -2112,6 +2124,47 @@ optional deviceTimeMs?: number;
 Device time as injected-clock ms — home node only (`getDeviceTime`). The
 mesh device's own clock, useful for drift checks.
 
+##### firmware?
+
+```ts
+optional firmware?: object;
+```
+
+Firmware / hardware identity — **home node only** (companion-protocol
+`deviceQuery`). The structured equivalent of the repeater CLI's
+`ver` and `board` verbs (which don't exist on companion firmware).
+Lets an agent identify the home node's hardware + build without
+serial console access.
+
+Note: the device exposes a *protocol* version (a single byte; currently
+always `1`) — there is no human-readable firmware version string on
+the companion protocol. `buildDate` and `manufacturerModel` are the
+useful identifiers for "what's running on this device."
+
+###### buildDate
+
+```ts
+buildDate: string;
+```
+
+Firmware build date string, e.g. `"19 Feb 2025"`.
+
+###### manufacturerModel
+
+```ts
+manufacturerModel: string;
+```
+
+Hardware board / model identifier, e.g. `"Heltec V3"`.
+
+###### protocolVersion
+
+```ts
+protocolVersion: number;
+```
+
+Companion-protocol version (always `1` on current firmware).
+
 ##### kind
 
 ```ts
@@ -2129,6 +2182,28 @@ optional lastHeardMs?: number;
 When the node was last heard, as injected-clock ms. For the home node this
 is the device time; for a remote it is its last advert (`lastAdvert`),
 where derivable.
+
+##### location?
+
+```ts
+optional location?: object;
+```
+
+Advertised location, where set — **home node only** (from
+`getSelfInfo`'s `advLat`/`advLon`). Present when the node has a
+non-zero location pinned via `set_node_location` / `admin set-location`.
+
+###### lat
+
+```ts
+lat: number;
+```
+
+###### lon
+
+```ts
+lon: number;
+```
 
 ##### node
 
@@ -2892,7 +2967,7 @@ path exists); the registration guard enforces this at server startup.
 ### VERSION
 
 ```ts
-const VERSION: "0.1.5" = "0.1.5";
+const VERSION: "0.1.6" = "0.1.6";
 ```
 
 The package version. Kept in step with package.json at release time.
