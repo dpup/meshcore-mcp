@@ -1,18 +1,24 @@
 /**
- * The 0.1.5 "unwrapped" admin tools — top-level MCP tools for the 7
- * ADMIN_COMMANDS entries that have a structured (companion-protocol) home
- * path. Each tool delegates to the corresponding registry entry via
- * {@link MeshService.runAdmin}, so:
+ * The "unwrapped" admin tools — top-level MCP tools for selected
+ * ADMIN_COMMANDS entries. Each tool delegates to the corresponding registry
+ * entry via {@link MeshService.runAdmin}, so:
  *
  * - **per-command MCP annotations work** — `set_tx_power` carries
  *   `idempotentHint: true, destructiveHint: false`, `reboot_node` carries
  *   `destructiveHint: true, idempotentHint: false`, etc. The multiplexed
  *   `admin` tool can only carry conservative static annotations because one
  *   tool can't express per-command hints (AGENTS.md don't-regress #4);
- *   these wrappers fix that for the 7 most-used commands.
+ *   these wrappers fix that for the unwrapped subset.
  * - **per-command input schemas** are validated by the SDK before the
  *   handler runs (the multiplexed `admin` tool's `params` is `z.record` /
  *   opaque, re-parsed inside `runAdmin`).
+ *
+ * Two scope flavours both wrap cleanly here:
+ * - **home+remote** — `node` is optional (omit ⇒ home), e.g. `reboot_node`.
+ * - **remote-only** — `node` is required (no home path), e.g.
+ *   `get_node_neighbors` (the CLI's `neighbors` verb only exists on
+ *   repeater firmware, so against home it would return the same
+ *   role-mismatch error the `admin` tool returns).
  *
  * The `admin` sub-command path stays intact (back-compat) — both
  * `admin <node> reboot` and `reboot_node { node }` reach the same
@@ -124,6 +130,76 @@ export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
       "Set a node's advertised lat/lon (decimal degrees). Omit `node` to " +
       "target home. Equivalent to `admin <node> set-location { lat, lon }`.",
   },
+
+  // -------- remote-only reads + benign diagnostics --------
+  // These wrap repeater-firmware CLI verbs that don't exist on companion
+  // firmware. They're unwrapped here for the per-command MCP annotations
+  // (readOnlyHint: true for reads) and discoverability. `node` is required
+  // — there's no home path. For most of these, the analogous companion-
+  // protocol read is already in `get_node_health` (firmware version,
+  // location, etc.), so for the *home* node use that instead.
+
+  {
+    name: "get_node_version",
+    commandName: "ver",
+    title: "Read a remote node's firmware version",
+    description:
+      "Read a remote repeater's firmware version + build date string. " +
+      "Equivalent to `admin <node> ver`. Required `node` — only repeater " +
+      "firmware implements the `ver` CLI verb. For the home node's " +
+      "firmware identity, use `get_node_health()` (the `firmware` block).",
+  },
+  {
+    name: "get_node_board",
+    commandName: "board",
+    title: "Read a remote node's hardware board",
+    description:
+      "Read a remote repeater's hardware board / model identifier. " +
+      "Equivalent to `admin <node> board`. Required `node`. For the home " +
+      "node, use `get_node_health()` (the `firmware.manufacturerModel` field).",
+  },
+  {
+    name: "get_node_clock",
+    commandName: "clock",
+    title: "Read a remote node's current clock",
+    description:
+      "Read a remote repeater's current device clock (HH:MM - D/M/Y UTC). " +
+      "Equivalent to `admin <node> clock`. Required `node`. For the home " +
+      "node, use `get_node_health()` (the `deviceTimeMs` field).",
+  },
+  {
+    name: "get_node_neighbors",
+    commandName: "neighbors",
+    title: "Read a remote node's recent neighbours",
+    description:
+      "List a remote repeater's recent neighbours (up to 8), each as " +
+      "`{pk-prefix}:{ts}:{snr*4}` in the reply text. The H15 topology " +
+      "data source. Equivalent to `admin <node> neighbors`. Required " +
+      "`node`. Pairs with `discover_neighbors(node)` to trigger an " +
+      "active probe first.",
+  },
+  {
+    name: "discover_neighbors",
+    commandName: "discover-neighbors",
+    title: "Trigger a node's neighbour discovery",
+    description:
+      "Broadcast a node-discovery request from a remote repeater. Replies " +
+      "populate its neighbour list — read it back with " +
+      "`get_node_neighbors(node)`. Equivalent to `admin <node> " +
+      "discover-neighbors`. Required `node`.",
+  },
+  {
+    name: "get_node_config",
+    commandName: "get-config",
+    title: "Read a remote node's config value",
+    description:
+      "Read one of a remote repeater's configuration values by key (e.g. " +
+      "`tx`, `radio`, `name`, `freq`, `flood.max`, `path.hash.mode`). " +
+      "Equivalent to `admin <node> get-config { key }`. Required `node`. " +
+      "The reply is a single line of text the agent parses. For the " +
+      "home node's radio / identity config, use `get_node_health()` " +
+      "(structured fields).",
+  },
 ];
 
 /**
@@ -141,10 +217,11 @@ export function registerUnwrappedAdminTools(
 }
 
 /**
- * Register one entry. Validates the command exists, is home-reachable, has
- * a ZodObject params schema, and doesn't collide with the helper's
- * tool-level keys; throws at startup on any violation so the bad shape
- * surfaces in dev, not as a runtime tool-shape mismatch later.
+ * Register one entry. Validates the command exists, has a ZodObject
+ * params schema, and doesn't collide with the helper's tool-level keys.
+ * Throws at startup on any violation so a bad shape surfaces in dev,
+ * not as a runtime tool-shape mismatch later. Whether `node` is required
+ * (remote-only) or optional (home+remote) is derived from `def.scope`.
  */
 function registerOne(
   server: McpServer,
@@ -154,12 +231,6 @@ function registerOne(
   const def = ADMIN_COMMANDS[spec.commandName];
   if (def === undefined) {
     throw new Error(`registerUnwrappedAdminTools: unknown command "${spec.commandName}"`);
-  }
-  if (def.scope !== "home+remote" || def.home === undefined) {
-    throw new Error(
-      `registerUnwrappedAdminTools: "${spec.commandName}" isn't home-reachable ` +
-        `(scope=${def.scope}); only home+remote commands belong here.`,
-    );
   }
   if (!(def.params instanceof z.ZodObject)) {
     throw new Error(
@@ -178,6 +249,19 @@ function registerOne(
     }
   }
 
+  // home+remote → `node` optional (omit ⇒ home). remote-only → required
+  // (no home path; the SDK should reject before the handler runs rather
+  // than letting runAdmin's role-mismatch error surface).
+  const nodeBase = z
+    .string()
+    .min(1)
+    .describe(
+      def.scope === "home+remote"
+        ? "target node (contact name or hex public-key prefix); omit to target the home node"
+        : "target node (contact name or hex public-key prefix); required (this command isn't implemented on companion firmware so it can't target home)",
+    );
+  const nodeSchema = def.scope === "home+remote" ? nodeBase.optional() : nodeBase;
+
   registerServiceTool(server, service, {
     name: spec.name,
     config: {
@@ -185,19 +269,10 @@ function registerOne(
       description: spec.description,
       // Command params first, tool-level keys after — so even if the
       // collision guard above is ever loosened, `node` / `dryRun`
-      // deterministically come from the tool layer. `min(1)` on node
-      // rejects an empty string at the schema (nullish coalescing only
-      // catches null/undefined; `""` would otherwise reach `isHome("")`
-      // → false → wrong remote dispatch).
+      // deterministically come from the tool layer.
       inputSchema: {
         ...commandShape,
-        node: z
-          .string()
-          .min(1)
-          .optional()
-          .describe(
-            "target node (contact name or hex public-key prefix); omit to target the home node",
-          ),
+        node: nodeSchema,
         dryRun: z
           .boolean()
           .optional()

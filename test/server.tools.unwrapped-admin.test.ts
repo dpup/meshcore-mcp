@@ -65,6 +65,7 @@ describe("unwrapped admin tools through the MCP stack", () => {
     // entire point of unwrapping. Compare names rather than picking one
     // example so a regression on any single tool surfaces here.
     const pairs: Array<[string, string]> = [
+      // home+remote (optional node)
       ["reboot_node", "reboot"],
       ["broadcast_advert", "advert"],
       ["sync_clock", "sync-time"],
@@ -72,6 +73,13 @@ describe("unwrapped admin tools through the MCP stack", () => {
       ["set_radio", "set-radio"],
       ["set_node_name", "set-name"],
       ["set_node_location", "set-location"],
+      // remote-only reads + diagnostics (required node)
+      ["get_node_version", "ver"],
+      ["get_node_board", "board"],
+      ["get_node_clock", "clock"],
+      ["get_node_neighbors", "neighbors"],
+      ["discover_neighbors", "discover-neighbors"],
+      ["get_node_config", "get-config"],
     ];
     for (const [tool, cmd] of pairs) {
       const def = ADMIN_COMMANDS[cmd];
@@ -220,6 +228,45 @@ describe("unwrapped admin tools through the MCP stack", () => {
     expect(calls.length).toBe(1);
     expect((calls[0]?.args as { name: string }).name).toBe("NewBase");
 
+    await h.cleanup();
+  });
+
+  it("remote-only read tools require `node` at the schema layer", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    // Calling `get_node_version` with no node should be rejected by the
+    // SDK schema before the handler runs — this is the read-tier
+    // counterpart to `reboot_node`'s optional-node convention.
+    await h.client
+      .callTool({ name: "get_node_version", arguments: {} })
+      .catch(() => undefined);
+    // Nothing should have hit the device — the sim records `login` for
+    // every remote admin dispatch; verify none fired.
+    expect(h.sim.commandsOf("login").length).toBe(0);
+    await h.cleanup();
+  });
+
+  it("get_node_neighbors dry-run previews against the named remote", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    const res = await h.client.callTool({
+      name: "get_node_neighbors",
+      arguments: { node: "Rocky", dryRun: true },
+    });
+    const out = structured<{ command: string; dryRun: boolean; preview?: string }>(res);
+    expect(out.command).toBe("neighbors");
+    expect(out.dryRun).toBe(true);
+    expect(out.preview).toContain("Rocky");
+    await h.cleanup();
+  });
+
+  it("get_node_config takes the key param and previews it", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    const res = await h.client.callTool({
+      name: "get_node_config",
+      arguments: { node: "Rocky", key: "tx", dryRun: true },
+    });
+    const out = structured<{ command: string; preview?: string }>(res);
+    expect(out.command).toBe("get-config");
+    expect(out.preview).toContain("tx");
     await h.cleanup();
   });
 

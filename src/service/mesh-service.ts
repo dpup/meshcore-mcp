@@ -1201,12 +1201,16 @@ export class MeshService {
     // timeout no longer fails the whole snapshot — we degrade gracefully and
     // list what we couldn't read in `degraded` (PRD §4 "every result is
     // digested; every error is actionable").
-    const [batteryR, deviceTimeR, coreR, radioR, packetsR] = await Promise.allSettled([
+    const [batteryR, deviceTimeR, coreR, radioR, packetsR, firmwareR] = await Promise.allSettled([
       this.request(() => this.client.getBatteryVoltage()),
       this.request(() => this.client.getDeviceTime()),
       this.request(() => this.client.getStatsCore()),
       this.request(() => this.client.getStatsRadio()),
       this.request(() => this.client.getStatsPackets()),
+      // deviceQuery is the structured replacement for the CLI `ver` / `board`
+      // verbs (which don't exist on companion firmware). Best-effort: a
+      // failure degrades but doesn't sink the snapshot.
+      this.request(() => this.client.deviceQuery()),
     ]);
 
     const degraded: string[] = [];
@@ -1215,6 +1219,7 @@ export class MeshService {
     const core = settled(coreR, "statsCore", degraded);
     const radioStats = settled(radioR, "statsRadio", degraded);
     const packets = settled(packetsR, "statsPackets", degraded);
+    const firmware = settled(firmwareR, "firmware", degraded);
 
     const stats: NonNullable<NodeHealth["stats"]> = {};
     let uptimeSecs: number | undefined;
@@ -1269,6 +1274,22 @@ export class MeshService {
     if (uptimeSecs !== undefined) result.uptimeSecs = uptimeSecs;
     if (txQueueLen !== undefined) result.txQueueLen = txQueueLen;
     if (Object.keys(stats).length > 0) result.stats = stats;
+    if (firmware !== undefined) {
+      result.firmware = {
+        protocolVersion: firmware.firmwareVer,
+        buildDate: firmware.firmwareBuildDate,
+        manufacturerModel: firmware.manufacturerModel,
+      };
+    }
+    // Location: only present when the operator has actually set one. The
+    // firmware reports (0, 0) for an unset advert location; skip that to
+    // avoid surfacing a misleading null-island fix.
+    if (self.advLat !== 0 || self.advLon !== 0) {
+      result.location = { lat: self.advLat, lon: self.advLon };
+    }
+    // The companion's advert auto-add flag is the inverse of the wire-level
+    // `manualAddContacts` (the bit the device actually stores).
+    result.autoAddContacts = !self.manualAddContacts;
     if (degraded.length > 0) result.degraded = degraded;
     return result;
   }

@@ -114,6 +114,46 @@ export interface NodeHealth {
   deviceTimeMs?: number;
 
   /**
+   * Firmware / hardware identity — **home node only** (companion-protocol
+   * `deviceQuery`). The structured equivalent of the repeater CLI's
+   * `ver` and `board` verbs (which don't exist on companion firmware).
+   * Lets an agent identify the home node's hardware + build without
+   * serial console access.
+   *
+   * Note: the device exposes a *protocol* version (a single byte; currently
+   * always `1`) — there is no human-readable firmware version string on
+   * the companion protocol. `buildDate` and `manufacturerModel` are the
+   * useful identifiers for "what's running on this device."
+   */
+  firmware?: {
+    /** Companion-protocol version (always `1` on current firmware). */
+    protocolVersion: number;
+    /** Firmware build date string, e.g. `"19 Feb 2025"`. */
+    buildDate: string;
+    /** Hardware board / model identifier, e.g. `"Heltec V3"`. */
+    manufacturerModel: string;
+  };
+
+  /**
+   * Advertised location, where set — **home node only** (from
+   * `getSelfInfo`'s `advLat`/`advLon`). Present when the node has a
+   * non-zero location pinned via `set_node_location` / `admin set-location`.
+   */
+  location?: {
+    lat: number;
+    lon: number;
+  };
+
+  /**
+   * Whether new contacts heard via adverts are added automatically —
+   * **home node only** (companion `getSelfInfo`'s `manualAddContacts`,
+   * inverted). The setting the {@link MeshService.setAutoAddContacts}
+   * tool toggles; surfacing it here lets an agent read current state
+   * before changing it.
+   */
+  autoAddContacts?: boolean;
+
+  /**
    * Opaque telemetry payload length, in bytes — remote node only. Telemetry is
    * Cayenne-LPP encoded; we do not decode it (PRD §4), only report its size so
    * an agent can tell whether the node is reporting sensors.

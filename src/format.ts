@@ -82,6 +82,29 @@ export const nodeHealthOutputShape = {
     .optional(),
   deviceTimeMs: z.number().optional(),
   telemetryBytes: z.number().optional(),
+  // Home-only. Structured replacement for the repeater CLI's `ver` / `board`
+  // verbs — companion firmware exposes these via the `deviceQuery` companion
+  // command, so we surface them directly in the health snapshot instead of
+  // requiring an admin call.
+  firmware: z
+    .object({
+      protocolVersion: z.number().describe("companion-protocol version (always 1 on current firmware)"),
+      buildDate: z.string().describe("firmware build date"),
+      manufacturerModel: z.string().describe("hardware board / model"),
+    })
+    .optional(),
+  // Home-only. The node's advertised lat/lon, when set (the firmware
+  // reports 0,0 for unset; the service drops the null-island case).
+  location: z
+    .object({
+      lat: z.number(),
+      lon: z.number(),
+    })
+    .optional(),
+  // Home-only. The companion's auto-add-contacts state — pair-read for
+  // the `set_auto_add_contacts` tool so an agent can check current state
+  // before toggling.
+  autoAddContacts: z.boolean().optional(),
   degraded: z
     .array(z.string())
     .optional()
