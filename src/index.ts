@@ -69,6 +69,13 @@ export { registerTracePath } from "./tools/trace-path.js";
 export { registerAdmin } from "./tools/admin.js";
 export { registerSetCredential } from "./tools/set-credential.js";
 export { registerForgetCredential } from "./tools/forget-credential.js";
+export { registerImportContact } from "./tools/import-contact.js";
+export { registerExportContact } from "./tools/export-contact.js";
+export { registerShareContact } from "./tools/share-contact.js";
+export { registerRemoveContact } from "./tools/remove-contact.js";
+export { registerResetPath } from "./tools/reset-path.js";
+export { registerSetContactPath } from "./tools/set-contact-path.js";
+export { registerSetAutoAddContacts } from "./tools/set-auto-add-contacts.js";
 
 // The runtime-managed credential store — the third injected seam (alongside
 // MeshCoreClient and Clock). Persists the per-node login passwords the

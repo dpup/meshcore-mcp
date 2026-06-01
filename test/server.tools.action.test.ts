@@ -189,7 +189,7 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
     await h.cleanup();
   });
 
-  it("a remote-only command against the home node errors clearly", async () => {
+  it("a remote-only command against the home node returns an actionable role-mismatch error", async () => {
     const h = await makeSimServer({ world: buildWorld() });
 
     const res = (await h.client.callTool({
@@ -198,7 +198,13 @@ describe("action tools through a real MCP Client over a sim-backed server", () =
     })) as ToolResult;
 
     expect(res.isError).toBe(true);
-    expect(text(res).toLowerCase()).toContain("remote-only");
+    const msg = text(res).toLowerCase();
+    // The error names the actual role split (companion vs repeater) and
+    // points at the alternative (target a remote contact / serial console),
+    // so the agent has something to do next instead of a dead-end message.
+    expect(msg).toContain("companion");
+    expect(msg).toContain("repeater");
+    expect(msg).toMatch(/remote contact|serial console/);
 
     await h.cleanup();
   });

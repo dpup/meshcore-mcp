@@ -10,13 +10,20 @@ import { registerNodes } from "./resources/nodes.js";
 import { registerTrafficLive } from "./resources/traffic-live.js";
 import type { MeshService } from "./service/mesh-service.js";
 import { registerAdmin } from "./tools/admin.js";
+import { registerExportContact } from "./tools/export-contact.js";
 import { registerForgetCredential } from "./tools/forget-credential.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
+import { registerImportContact } from "./tools/import-contact.js";
 import { registerDeleteChannel } from "./tools/delete-channel.js";
+import { registerRemoveContact } from "./tools/remove-contact.js";
+import { registerResetPath } from "./tools/reset-path.js";
 import { registerSendMessage } from "./tools/send-message.js";
+import { registerSetAutoAddContacts } from "./tools/set-auto-add-contacts.js";
 import { registerSetChannel } from "./tools/set-channel.js";
+import { registerSetContactPath } from "./tools/set-contact-path.js";
 import { registerSetCredential } from "./tools/set-credential.js";
+import { registerShareContact } from "./tools/share-contact.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
 import { registerTracePath } from "./tools/trace-path.js";
 import { VERSION } from "./version.js";
@@ -83,6 +90,17 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     // login passwords for remote nodes (see src/store/credential-store.ts).
     registerSetCredential(server, options.service);
     registerForgetCredential(server, options.service);
+
+    // Contact-management tools — companion-protocol operations on the local
+    // node's roster. No equivalent for remote nodes (the companion protocol
+    // is what reaches the local device's contact list).
+    registerImportContact(server, options.service);
+    registerExportContact(server, options.service);
+    registerShareContact(server, options.service);
+    registerRemoveContact(server, options.service);
+    registerResetPath(server, options.service);
+    registerSetContactPath(server, options.service);
+    registerSetAutoAddContacts(server, options.service);
 
     registerNodes(server, options.service);
     registerContacts(server, options.service);

@@ -40,7 +40,7 @@ import type {
   TraceData,
 } from "@dpup/meshcore-ts";
 
-import { fromHex, MeshCoreError, TxtType } from "@dpup/meshcore-ts";
+import { fromHex, MeshCoreError, toHex, TxtType } from "@dpup/meshcore-ts";
 
 import { randomBytes } from "node:crypto";
 
@@ -435,6 +435,125 @@ export class MeshService {
     if (contact === undefined) {
       throw new MeshServiceUnknownNodeError(node);
     }
+  }
+
+  // -------- contact management (companion-protocol, local-companion only) --
+  // These wrap the contact-list operations the companion protocol exposes
+  // (addOrUpdateContact / removeContact / importContact / exportContact /
+  // shareContact / resetPath). All operate on the home node's local contact
+  // list; there's no remote equivalent.
+
+  /**
+   * Import a contact into the local list from its advert-packet bytes.
+   * Bytes are typically obtained from {@link exportContact} on another node
+   * (or via an out-of-band channel like a QR code). Returns the byte length
+   * consumed for observability.
+   */
+  async importContact(advertHex: string): Promise<{ imported: true; lengthBytes: number }> {
+    const bytes = fromHex(advertHex);
+    await this.request(() => this.client.importContact(bytes));
+    return { imported: true, lengthBytes: bytes.length };
+  }
+
+  /**
+   * Export a contact (or the home node, when `target` is omitted) as
+   * advert-packet bytes (hex). The bytes can be handed to another node's
+   * {@link importContact} or {@link shareContact} to propagate this contact's
+   * identity off-mesh.
+   */
+  async exportContact(target?: string): Promise<{
+    name: string;
+    publicKey: string;
+    advertHex: string;
+  }> {
+    if (target === undefined) {
+      const self = await this.request(() => this.client.getSelfInfo());
+      const bytes = await this.request(() => this.client.exportContact());
+      return { name: self.name, publicKey: self.publicKey, advertHex: toHex(bytes) };
+    }
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    const bytes = await this.request(() => this.client.exportContact(contact));
+    return {
+      name: contact.advName || target,
+      publicKey: contact.publicKey,
+      advertHex: toHex(bytes),
+    };
+  }
+
+  /**
+   * Broadcast a contact's advert mesh-wide. Used to propagate a contact's
+   * identity (its public key, name, last-known location) so other nodes can
+   * route to it without having heard its own advert.
+   */
+  async shareContact(target: string): Promise<{ name: string; publicKey: string }> {
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    await this.request(() => this.client.shareContact(contact));
+    return { name: contact.advName || target, publicKey: contact.publicKey };
+  }
+
+  /**
+   * Remove a contact from the local list. The contact may reappear if its
+   * advert is heard again (subject to {@link setAutoAddContacts}). Not
+   * destructive in the mesh sense — only in the local roster.
+   */
+  async removeContact(target: string): Promise<{ name: string; publicKey: string }> {
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    await this.request(() => this.client.removeContact(contact));
+    return { name: contact.advName || target, publicKey: contact.publicKey };
+  }
+
+  /**
+   * Clear the cached forwarding path to a contact. The next direct send
+   * re-discovers the route. Useful when a known path has gone stale (a
+   * repeater rebooted, a topology change) and direct sends are failing.
+   */
+  async resetContactPath(target: string): Promise<{ name: string; publicKey: string }> {
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    await this.request(() => this.client.resetPath(contact));
+    return { name: contact.advName || target, publicKey: contact.publicKey };
+  }
+
+  /**
+   * Pin an explicit forwarding path to a contact (a sequence of repeater
+   * path-hash bytes, up to 64). Advanced; for static routing where the
+   * automatic path discovery is wrong or undesirable. Empty path bytes mean
+   * "direct" (no repeaters).
+   */
+  async setContactPath(
+    target: string,
+    pathHex: string,
+  ): Promise<{ name: string; publicKey: string; pathHex: string }> {
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    const bytes = pathHex === "" ? new Uint8Array() : fromHex(pathHex);
+    if (bytes.length > 64) {
+      throw new MeshCoreError(`path too long (${bytes.length} bytes; max 64)`);
+    }
+    await this.request(() => this.client.setContactPath(contact, bytes));
+    return {
+      name: contact.advName || target,
+      publicKey: contact.publicKey,
+      pathHex: toHex(bytes),
+    };
+  }
+
+  /**
+   * Toggle automatic vs manual contact-add mode. With auto-add (the
+   * companion default), new contacts heard via flood/zero-hop adverts are
+   * appended to the list automatically. With manual, they are not — the
+   * agent / operator must explicitly {@link importContact} each one.
+   */
+  async setAutoAddContacts(autoAdd: boolean): Promise<{ autoAdd: boolean }> {
+    if (autoAdd) {
+      await this.request(() => this.client.setAutoAddContacts());
+    } else {
+      await this.request(() => this.client.setManualAddContacts());
+    }
+    return { autoAdd };
   }
 
   /**
@@ -841,8 +960,18 @@ export class MeshService {
     // and a structured path exists.
     if (isHome) {
       if (def.scope === "remote-only" || def.home === undefined) {
+        // The local node is always a companion (companion_radio_wifi / _usb);
+        // these admin commands wrap repeater-firmware CLI verbs that companion
+        // firmware doesn't implement, so there's no companion-protocol path
+        // available — not a meshcore-mcp limitation, a firmware role split.
+        // Tell the agent the actual situation + actionable alternatives.
         throw new AdminCommandError(
-          `Command "${command}" is remote-only and cannot run against the home node "${node}".`,
+          `"${command}" is a repeater-firmware CLI verb; the local node ` +
+            `"${node}" is a companion, which doesn't implement it. To run it ` +
+            `against a repeater, target the repeater by name as a remote ` +
+            `contact (e.g. \`admin <repeater-name> ${command} …\`). To ` +
+            `configure the local companion's CLI directly, use the device's ` +
+            `serial console.`,
         );
       }
       await def.home(this.client, node, p);

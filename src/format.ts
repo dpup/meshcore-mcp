@@ -375,6 +375,93 @@ export function digestDeleteChannel(r: { index: number; name?: string }): string
 }
 
 // ---------------------------------------------------------------------------
+// contact management (companion-protocol; local-only)
+// ---------------------------------------------------------------------------
+
+/** Output schema for `import_contact`. */
+export const importContactOutputShape = {
+  imported: z.literal(true),
+  lengthBytes: z.number().describe("number of advert-packet bytes consumed"),
+} as const;
+
+/** A one-line digest of an `import_contact` result. */
+export function digestImportContact(r: { lengthBytes: number }): string {
+  return `Imported contact (${r.lengthBytes} bytes of advert).`;
+}
+
+/** Output schema for `export_contact`. */
+export const exportContactOutputShape = {
+  name: z.string().describe("the exported contact's advertised name (or the home node's name)"),
+  publicKey: z.string().describe("the exported contact's hex public key"),
+  advertHex: z.string().describe("the advert packet as hex bytes — pass to another node's import_contact"),
+} as const;
+
+/** A one-line digest of an `export_contact` result. */
+export function digestExportContact(r: { name: string; advertHex: string }): string {
+  return `Exported "${r.name}" — ${r.advertHex.length / 2} bytes.`;
+}
+
+/** Output schema for `share_contact`. */
+export const shareContactOutputShape = {
+  name: z.string(),
+  publicKey: z.string(),
+} as const;
+
+/** A one-line digest of a `share_contact` result. */
+export function digestShareContact(r: { name: string }): string {
+  return `Shared "${r.name}"'s advert mesh-wide.`;
+}
+
+/** Output schema for `remove_contact`. */
+export const removeContactOutputShape = {
+  name: z.string(),
+  publicKey: z.string(),
+} as const;
+
+/** A one-line digest of a `remove_contact` result. */
+export function digestRemoveContact(r: { name: string }): string {
+  return `Removed "${r.name}" from the contact list.`;
+}
+
+/** Output schema for `reset_path`. */
+export const resetPathOutputShape = {
+  name: z.string(),
+  publicKey: z.string(),
+} as const;
+
+/** A one-line digest of a `reset_path` result. */
+export function digestResetPath(r: { name: string }): string {
+  return `Cleared cached path to "${r.name}" — next direct send will re-discover.`;
+}
+
+/** Output schema for `set_contact_path`. */
+export const setContactPathOutputShape = {
+  name: z.string(),
+  publicKey: z.string(),
+  pathHex: z.string().describe("the path bytes that were written (hex)"),
+} as const;
+
+/** A one-line digest of a `set_contact_path` result. */
+export function digestSetContactPath(r: { name: string; pathHex: string }): string {
+  const hops = r.pathHex.length / 2;
+  return hops === 0
+    ? `Set direct path (0 hops) to "${r.name}".`
+    : `Set path to "${r.name}" — ${hops} hop(s): ${r.pathHex}.`;
+}
+
+/** Output schema for `set_auto_add_contacts`. */
+export const setAutoAddContactsOutputShape = {
+  autoAdd: z.boolean().describe("the new auto-add state"),
+} as const;
+
+/** A one-line digest of a `set_auto_add_contacts` result. */
+export function digestSetAutoAddContacts(r: { autoAdd: boolean }): string {
+  return r.autoAdd
+    ? "Auto-add enabled — new adverts will be added to the contact list."
+    : "Auto-add disabled — new adverts will NOT be auto-added; use import_contact.";
+}
+
+// ---------------------------------------------------------------------------
 // trace_path
 // ---------------------------------------------------------------------------
 
