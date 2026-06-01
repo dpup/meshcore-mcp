@@ -2953,14 +2953,16 @@ The canonical uri of the live-traffic resource.
 const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[];
 ```
 
-The 7 unwrapped admin tools. Single source of truth: [registerUnwrappedAdminTools](#registerunwrappedadmintools) iterates this list to register, and
+The unwrapped admin tools. Single source of truth: [registerUnwrappedAdminTools](#registerunwrappedadmintools) iterates this list to register, and
 `instructions.ts` derives the tool-name surface mentioned in
 `SERVER_INSTRUCTIONS` from the same list.
 
-Adding an 8th is one entry here — no new file, no separate registration
-line, no instructions-list edit. The entry must reference an
-`ADMIN_COMMANDS` key whose scope is `"home+remote"` (a structured `home`
-path exists); the registration guard enforces this at server startup.
+Adding another is one entry here — no new file, no separate
+registration line, no instructions-list edit. The entry must reference
+a valid `ADMIN_COMMANDS` key; `home+remote` commands must additionally
+expose a `home()` path. The registration guard enforces both at
+server startup so a bad entry fails loud during dev, not as a runtime
+dispatch mismatch later.
 
 ***
 
