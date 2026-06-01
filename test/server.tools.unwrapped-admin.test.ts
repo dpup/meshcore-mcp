@@ -151,10 +151,30 @@ describe("unwrapped admin tools through the MCP stack", () => {
     expect(out.dryRun).toBe(true);
     expect(out.command).toBe("reboot");
     expect(out.preview).toBeDefined();
-    expect(out.preview).toContain("Base"); // the home node name
+    // The preview uses the literal "home" placeholder when `node` is omitted —
+    // AGENTS.md don't-regress #4 says dryRun previews never contact the
+    // device. Substituting `getSelfInfo().name` would require a round-trip;
+    // the slightly-less-specific placeholder preserves the invariant.
+    expect(out.preview).toContain("home");
     expect(out.via).toBeUndefined();
     expect(h.sim.commandsOf("reboot").length).toBe(0);
+    expect(h.sim.commandsOf("getSelfInfo").length).toBe(0); // the invariant
 
+    await h.cleanup();
+  });
+
+  it("dryRun: true with empty-string node is rejected at the schema layer", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    // Without the schema guard, `node: ""` would slip past nullish
+    // coalescing (`?? "home"` only matches null/undefined), then route to
+    // remote dispatch with an empty target. min(1) catches it upfront.
+    await h.client
+      .callTool({
+        name: "reboot_node",
+        arguments: { node: "", dryRun: true },
+      })
+      .catch(() => undefined);
+    expect(h.sim.commandsOf("reboot").length).toBe(0);
     await h.cleanup();
   });
 

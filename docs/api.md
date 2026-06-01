@@ -1912,46 +1912,6 @@ The node the failing operation targeted (name or key prefix), if any.
 
 ***
 
-### HomeAdminToolOptions
-
-Options for [registerHomeAdminTool](#registerhomeadmintool).
-
-#### Properties
-
-##### commandName
-
-```ts
-commandName: string;
-```
-
-The matching key into [ADMIN\_COMMANDS](#admin_commands) (e.g. `"reboot"`).
-
-##### description
-
-```ts
-description: string;
-```
-
-The tool's agent-facing description. Should mention the admin equivalent.
-
-##### name
-
-```ts
-name: string;
-```
-
-The MCP tool name (e.g. `"reboot_node"`).
-
-##### title
-
-```ts
-title: string;
-```
-
-The tool's human title (shown in tool list UIs).
-
-***
-
 ### JsonFileCredentialStoreOptions
 
 Options for constructing a [JsonFileCredentialStore](#jsonfilecredentialstore).
@@ -2679,6 +2639,46 @@ optional text?: string;
 
 Decoded text, where available (verified messages only).
 
+***
+
+### UnwrappedAdminTool
+
+One entry in the [UNWRAPPED\_ADMIN\_TOOLS](#unwrapped_admin_tools) registry.
+
+#### Properties
+
+##### commandName
+
+```ts
+commandName: string;
+```
+
+The matching key into [ADMIN\_COMMANDS](#admin_commands) (e.g. `"reboot"`).
+
+##### description
+
+```ts
+description: string;
+```
+
+The tool's agent-facing description.
+
+##### name
+
+```ts
+name: string;
+```
+
+The MCP tool name (e.g. `"reboot_node"`).
+
+##### title
+
+```ts
+title: string;
+```
+
+The tool's human title (shown in tool list UIs).
+
 ## Type Aliases
 
 ### AdminScope
@@ -2869,6 +2869,23 @@ const TRAFFIC_LIVE_URI: "meshcore://traffic/live" = "meshcore://traffic/live";
 ```
 
 The canonical uri of the live-traffic resource.
+
+***
+
+### UNWRAPPED\_ADMIN\_TOOLS
+
+```ts
+const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[];
+```
+
+The 7 unwrapped admin tools. Single source of truth: [registerUnwrappedAdminTools](#registerunwrappedadmintools) iterates this list to register, and
+`instructions.ts` derives the tool-name surface mentioned in
+`SERVER_INSTRUCTIONS` from the same list.
+
+Adding an 8th is one entry here — no new file, no separate registration
+line, no instructions-list edit. The entry must reference an
+`ADMIN_COMMANDS` key whose scope is `"home+remote"` (a structured `home`
+path exists); the registration guard enforces this at server startup.
 
 ***
 
@@ -3075,27 +3092,6 @@ Register the `admin` action tool on `server`, backed by `service`.
 
 ***
 
-### registerBroadcastAdvert()
-
-```ts
-function registerBroadcastAdvert(server, service): void;
-```
-
-Register `broadcast_advert`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
 ### registerChannels()
 
 ```ts
@@ -3269,35 +3265,6 @@ instructions. Static content; needs no [MeshService](#meshservice).
 
 ***
 
-### registerHomeAdminTool()
-
-```ts
-function registerHomeAdminTool(
-   server, 
-   service, 
-   opts): void;
-```
-
-Register one unwrapped admin tool. Looks the command up in
-[ADMIN\_COMMANDS](#admin_commands), splices the command's Zod params into the tool's
-input schema alongside `node?` + `dryRun?`, derives per-command
-annotations from [annotationsForTier](#annotationsfortier), and dispatches via
-[MeshService.runAdmin](#runadmin).
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-| `opts` | [`HomeAdminToolOptions`](#homeadmintooloptions) |
-
-#### Returns
-
-`void`
-
-***
-
 ### registerImportContact()
 
 ```ts
@@ -3376,27 +3343,6 @@ Register the curated prompt templates on `server`.
 Prompts are pure content — they don't touch the [MeshService](#meshservice) — but
 [createServer](#createserver) registers them inside the service-present block so the
 empty M0 smoke path stays empty.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
-### registerRebootNode()
-
-```ts
-function registerRebootNode(server, service): void;
-```
-
-Register `reboot_node`.
 
 #### Parameters
 
@@ -3562,90 +3508,6 @@ Register the `set_credential` tool on `server`, backed by `service`.
 
 ***
 
-### registerSetNodeLocation()
-
-```ts
-function registerSetNodeLocation(server, service): void;
-```
-
-Register `set_node_location`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
-### registerSetNodeName()
-
-```ts
-function registerSetNodeName(server, service): void;
-```
-
-Register `set_node_name`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
-### registerSetRadio()
-
-```ts
-function registerSetRadio(server, service): void;
-```
-
-Register `set_radio`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
-### registerSetTxPower()
-
-```ts
-function registerSetTxPower(server, service): void;
-```
-
-Register `set_tx_power`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
 ### registerShareContact()
 
 ```ts
@@ -3674,27 +3536,6 @@ function registerSurveyMesh(server, service): void;
 ```
 
 Register the `survey_mesh` read tool on `server`, backed by `service`.
-
-#### Parameters
-
-| Parameter | Type |
-| ------ | ------ |
-| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
-| `service` | [`MeshService`](#meshservice) |
-
-#### Returns
-
-`void`
-
-***
-
-### registerSyncClock()
-
-```ts
-function registerSyncClock(server, service): void;
-```
-
-Register `sync_clock`.
 
 #### Parameters
 
@@ -3750,6 +3591,29 @@ capability, the subscribe/unsubscribe tracking, and the
 `onTraffic → sendResourceUpdated` bridge. Call **before** `server.connect()`
 (the capability must be registered before a transport is attached, and the
 Subscribe handler can only be set once the capability is declared).
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerUnwrappedAdminTools()
+
+```ts
+function registerUnwrappedAdminTools(server, service): void;
+```
+
+Register every entry in [UNWRAPPED\_ADMIN\_TOOLS](#unwrapped_admin_tools). Replaces the
+per-tool registrar files an earlier iteration used — one entry in the
+registry above is now all that's needed to add a new unwrapped tool.
 
 #### Parameters
 

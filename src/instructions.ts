@@ -3,7 +3,15 @@
  * by clients via `getInstructions()`, so an agent gets oriented before its first
  * call. Distilled, high-signal guidance (the agent-useful hints from
  * `docs/guide.md`); keep it short enough to sit in a system prompt.
+ *
+ * The unwrapped-admin name list is derived from {@link UNWRAPPED_ADMIN_TOOLS}
+ * so it can't drift from the actual registered surface.
  */
+import { UNWRAPPED_ADMIN_TOOLS } from "./tools/home-admin-helpers.js";
+
+/** Backtick-wrapped, comma-joined names of the unwrapped admin tools. */
+const unwrappedNames = UNWRAPPED_ADMIN_TOOLS.map((t) => `\`${t.name}\``).join(", ");
+
 export const SERVER_INSTRUCTIONS = `meshcore-mcp exposes a MeshCore node — and the mesh reachable through it — as tools, resources, and prompts.
 
 Trust model. This is the device layer and is **ungated**: no action is blocked server-side; you (and any human in the loop) are the policy. Reads are safe; \`send_message\` transmits; \`admin\` can be destructive. Preview an admin command with \`dryRun: true\` before running it, and confirm destructive ones. A wrong \`set-radio\` (applied after a reboot) can drop a node off the mesh.
@@ -16,7 +24,7 @@ Surface.
 - \`set_channel(name, secret?, index?)\` / \`delete_channel(index? | name?)\` — manage channels; omit \`secret\` for a random private channel, \`index\` for the next free slot. List channels at \`meshcore://channels\`.
 - \`trace_path(path? | node?)\` — trace a route and report each repeater hop's SNR (\`path\` = comma-separated hex hops like \`"23,5f,3a"\`, or a \`node\` to trace its known out-path). A propagation/coverage probe; an unresponsive path returns a timeout.
 - \`admin(node, command, params?, dryRun?)\` — one enumerated command; the tool's own description lists the catalogue, each command's accepted param formats, and its risk tier (also returned in the result).
-- **Unwrapped admin shortcuts:** \`reboot_node\`, \`broadcast_advert\`, \`sync_clock\`, \`set_tx_power\`, \`set_radio\`, \`set_node_name\`, \`set_node_location\` — top-level forms of the 7 admin commands that have a structured (companion-protocol) home path. Each carries per-command MCP annotations (e.g. \`set_tx_power\` is idempotent, \`reboot_node\` is destructive) and a typed input schema, where the multiplexed \`admin\` tool can only carry conservative static annotations. Both forms reach the same dispatch; pick whichever your client tooling prefers.
+- **Unwrapped admin shortcuts:** ${unwrappedNames} — top-level forms of the 7 admin commands that have a structured (companion-protocol) home path. Each carries per-command MCP annotations (e.g. \`set_tx_power\` is idempotent, \`reboot_node\` is destructive) and a typed input schema, where the multiplexed \`admin\` tool can only carry conservative static annotations. Both forms reach the same dispatch; pick whichever your client tooling prefers.
 - \`set_credential(node, password)\` / \`forget_credential(node)\` — remember the login password the server sends for a remote node's \`admin\` and \`get_node_health\` calls; never echoed in the result. The password is opaque to the server — the device unlocks **guest** (read-only) or **admin** (full) depending on which it matches. Store the admin password when you have it; it covers reads too.
 - \`import_contact\` / \`export_contact\` / \`share_contact\` / \`remove_contact\` / \`reset_path\` / \`set_contact_path\` / \`set_auto_add_contacts\` — manage the **local companion's** contact roster. Companion-protocol operations; no equivalent on remote nodes (the companion protocol is what reaches the local device's contact list). \`reset_path\` is the go-to when direct sends to a known contact start failing — clears stale routing.
 - Resources: \`meshcore://traffic/live\` (subscribable), \`meshcore://nodes\`, \`meshcore://contacts\`, \`meshcore://node/{node}\` (one node's health; the \`{node}\` variable autocompletes), and \`meshcore://help\` (a fuller reference — read it when you want more than this). Prompts: \`morning-mesh-check\`, \`diagnose-quiet-node\`, \`draft-outage-notice\` (the \`node\` argument autocompletes).

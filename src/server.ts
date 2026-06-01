@@ -10,14 +10,13 @@ import { registerNodes } from "./resources/nodes.js";
 import { registerTrafficLive } from "./resources/traffic-live.js";
 import type { MeshService } from "./service/mesh-service.js";
 import { registerAdmin } from "./tools/admin.js";
-import { registerBroadcastAdvert } from "./tools/broadcast-advert.js";
 import { registerExportContact } from "./tools/export-contact.js";
 import { registerForgetCredential } from "./tools/forget-credential.js";
 import { registerGetNodeHealth } from "./tools/get-node-health.js";
 import { registerGetRecentTraffic } from "./tools/get-recent-traffic.js";
 import { registerImportContact } from "./tools/import-contact.js";
 import { registerDeleteChannel } from "./tools/delete-channel.js";
-import { registerRebootNode } from "./tools/reboot-node.js";
+import { registerUnwrappedAdminTools } from "./tools/home-admin-helpers.js";
 import { registerRemoveContact } from "./tools/remove-contact.js";
 import { registerResetPath } from "./tools/reset-path.js";
 import { registerSendMessage } from "./tools/send-message.js";
@@ -25,13 +24,8 @@ import { registerSetAutoAddContacts } from "./tools/set-auto-add-contacts.js";
 import { registerSetChannel } from "./tools/set-channel.js";
 import { registerSetContactPath } from "./tools/set-contact-path.js";
 import { registerSetCredential } from "./tools/set-credential.js";
-import { registerSetNodeLocation } from "./tools/set-node-location.js";
-import { registerSetNodeName } from "./tools/set-node-name.js";
-import { registerSetRadio } from "./tools/set-radio.js";
-import { registerSetTxPower } from "./tools/set-tx-power.js";
 import { registerShareContact } from "./tools/share-contact.js";
 import { registerSurveyMesh } from "./tools/survey-mesh.js";
-import { registerSyncClock } from "./tools/sync-clock.js";
 import { registerTracePath } from "./tools/trace-path.js";
 import { VERSION } from "./version.js";
 
@@ -112,14 +106,9 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     // Unwrapped admin tools — top-level wrappers around the 7 home+remote
     // ADMIN_COMMANDS entries so their per-command annotations (read-only /
     // destructive / idempotent) reach the agent via MCP tool metadata. The
-    // multiplexed `admin` tool keeps these too for back-compat.
-    registerRebootNode(server, options.service);
-    registerBroadcastAdvert(server, options.service);
-    registerSyncClock(server, options.service);
-    registerSetTxPower(server, options.service);
-    registerSetRadio(server, options.service);
-    registerSetNodeName(server, options.service);
-    registerSetNodeLocation(server, options.service);
+    // multiplexed `admin` tool keeps these too for back-compat. The full
+    // list lives in `home-admin-helpers.ts` as `UNWRAPPED_ADMIN_TOOLS`.
+    registerUnwrappedAdminTools(server, options.service);
 
     registerNodes(server, options.service);
     registerContacts(server, options.service);

@@ -955,25 +955,27 @@ export class MeshService {
     }
     const p = parsed.data;
 
-    // Resolve `node === undefined` to the home node's name — supports the
-    // 0.1.5 unwrapped admin tools (`reboot_node` etc.) where `node` is
-    // optional and omitting it means "target home". Existing callers that
-    // pass a string still work unchanged. The selfInfo lookup is needed
-    // anyway for the home-vs-remote check below; doing it up front means
-    // dry-runs of unwrapped tools also get a meaningful preview node name.
-    const self = await this.request(() => this.client.getSelfInfo());
-    const resolvedNode = node ?? self.name;
-
     if (dryRun) {
+      // AGENTS.md don't-regress #4: dryRun previews are synthesized WITHOUT
+      // contacting the device. When the unwrapped admin tools pass `node`
+      // as undefined (= target home), substitute the literal "home" so the
+      // preview text stays meaningful without a `getSelfInfo` round-trip.
+      // The slightly-less-specific preview is the right trade for keeping
+      // dry-runs offline-safe.
       return {
         command,
         tier: def.tier,
         annotations: annotationsForTier(def.tier),
         dryRun: true,
-        preview: def.preview(resolvedNode, p),
+        preview: def.preview(node ?? "home", p),
       };
     }
 
+    // Non-dryRun: now we *do* need to know what node we're actually
+    // targeting (home vs remote dispatch, preview vs login path), so the
+    // device round-trip is justified.
+    const self = await this.request(() => this.client.getSelfInfo());
+    const resolvedNode = node ?? self.name;
     const isHome = this.resolver.isHome(resolvedNode, self);
 
     // Home dispatch: only when the node is home, the command is home-reachable,

@@ -76,15 +76,16 @@ export { registerRemoveContact } from "./tools/remove-contact.js";
 export { registerResetPath } from "./tools/reset-path.js";
 export { registerSetContactPath } from "./tools/set-contact-path.js";
 export { registerSetAutoAddContacts } from "./tools/set-auto-add-contacts.js";
-export { registerRebootNode } from "./tools/reboot-node.js";
-export { registerBroadcastAdvert } from "./tools/broadcast-advert.js";
-export { registerSyncClock } from "./tools/sync-clock.js";
-export { registerSetTxPower } from "./tools/set-tx-power.js";
-export { registerSetRadio } from "./tools/set-radio.js";
-export { registerSetNodeName } from "./tools/set-node-name.js";
-export { registerSetNodeLocation } from "./tools/set-node-location.js";
-export { registerHomeAdminTool } from "./tools/home-admin-helpers.js";
-export type { HomeAdminToolOptions } from "./tools/home-admin-helpers.js";
+// The 7 "unwrapped" admin tools — top-level forms of the home+remote
+// admin commands (reboot_node / broadcast_advert / sync_clock /
+// set_tx_power / set_radio / set_node_name / set_node_location). The
+// registry table is the single source of truth (importable by embedders
+// that want to introspect or extend the surface).
+export {
+  registerUnwrappedAdminTools,
+  UNWRAPPED_ADMIN_TOOLS,
+} from "./tools/home-admin-helpers.js";
+export type { UnwrappedAdminTool } from "./tools/home-admin-helpers.js";
 
 // The runtime-managed credential store — the third injected seam (alongside
 // MeshCoreClient and Clock). Persists the per-node login passwords the
