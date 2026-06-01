@@ -461,6 +461,35 @@ path; the tool marks it destructive.
   `name?`: `string`;
 \}\>
 
+##### exportContact()
+
+```ts
+exportContact(target?): Promise<{
+  advertHex: string;
+  name: string;
+  publicKey: string;
+}>;
+```
+
+Export a contact (or the home node, when `target` is omitted) as
+advert-packet bytes (hex). The bytes can be handed to another node's
+[importContact](#importcontact) or [shareContact](#sharecontact) to propagate this contact's
+identity off-mesh.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `target?` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `advertHex`: `string`;
+  `name`: `string`;
+  `publicKey`: `string`;
+\}\>
+
 ##### forgetCredential()
 
 ```ts
@@ -480,6 +509,33 @@ entry exists (still resolves). Touches no device.
 ###### Returns
 
 `Promise`\<`boolean`\>
+
+##### importContact()
+
+```ts
+importContact(advertHex): Promise<{
+  imported: true;
+  lengthBytes: number;
+}>;
+```
+
+Import a contact into the local list from its advert-packet bytes.
+Bytes are typically obtained from [exportContact](#exportcontact) on another node
+(or via an out-of-band channel like a QR code). Returns the byte length
+consumed for observability.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `advertHex` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `imported`: `true`;
+  `lengthBytes`: `number`;
+\}\>
 
 ##### listCredentialNodes()
 
@@ -592,6 +648,58 @@ after that (injected-clock) time; otherwise the full retained window.
 
 [`TrafficEvent`](#trafficevent)[]
 
+##### removeContact()
+
+```ts
+removeContact(target): Promise<{
+  name: string;
+  publicKey: string;
+}>;
+```
+
+Remove a contact from the local list. The contact may reappear if its
+advert is heard again (subject to [setAutoAddContacts](#setautoaddcontacts)). Not
+destructive in the mesh sense — only in the local roster.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `target` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `name`: `string`;
+  `publicKey`: `string`;
+\}\>
+
+##### resetContactPath()
+
+```ts
+resetContactPath(target): Promise<{
+  name: string;
+  publicKey: string;
+}>;
+```
+
+Clear the cached forwarding path to a contact. The next direct send
+re-discovers the route. Useful when a known path has gone stale (a
+repeater rebooted, a topology change) and direct sends are failing.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `target` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `name`: `string`;
+  `publicKey`: `string`;
+\}\>
+
 ##### runAdmin()
 
 ```ts
@@ -671,6 +779,31 @@ channel — not the raw `SentResult`. An unknown target throws a
 
 `Promise`\<[`SendMessageResult`](#sendmessageresult)\>
 
+##### setAutoAddContacts()
+
+```ts
+setAutoAddContacts(autoAdd): Promise<{
+  autoAdd: boolean;
+}>;
+```
+
+Toggle automatic vs manual contact-add mode. With auto-add (the
+companion default), new contacts heard via flood/zero-hop adverts are
+appended to the list automatically. With manual, they are not — the
+agent / operator must explicitly [importContact](#importcontact) each one.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `autoAdd` | `boolean` |
+
+###### Returns
+
+`Promise`\<\{
+  `autoAdd`: `boolean`;
+\}\>
+
 ##### setChannel()
 
 ```ts
@@ -701,6 +834,36 @@ resulting channel including its secret (hex), so the key can be shared.
   `index`: `number`;
   `name`: `string`;
   `secret`: `string`;
+\}\>
+
+##### setContactPath()
+
+```ts
+setContactPath(target, pathHex): Promise<{
+  name: string;
+  pathHex: string;
+  publicKey: string;
+}>;
+```
+
+Pin an explicit forwarding path to a contact (a sequence of repeater
+path-hash bytes, up to 64). Advanced; for static routing where the
+automatic path discovery is wrong or undesirable. Empty path bytes mean
+"direct" (no repeaters).
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `target` | `string` |
+| `pathHex` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `name`: `string`;
+  `pathHex`: `string`;
+  `publicKey`: `string`;
 \}\>
 
 ##### setCredential()
@@ -735,6 +898,32 @@ reads against the device's already-synced contact list.
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### shareContact()
+
+```ts
+shareContact(target): Promise<{
+  name: string;
+  publicKey: string;
+}>;
+```
+
+Broadcast a contact's advert mesh-wide. Used to propagate a contact's
+identity (its public key, name, last-known location) so other nodes can
+route to it without having heard its own advert.
+
+###### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `target` | `string` |
+
+###### Returns
+
+`Promise`\<\{
+  `name`: `string`;
+  `publicKey`: `string`;
+\}\>
 
 ##### start()
 
@@ -2641,7 +2830,7 @@ The canonical uri of the live-traffic resource.
 ### VERSION
 
 ```ts
-const VERSION: "0.1.4" = "0.1.4";
+const VERSION: "0.1.5" = "0.1.5";
 ```
 
 The package version. Kept in step with package.json at release time.
@@ -2908,6 +3097,27 @@ config operation (its own tool, not an `admin` command).
 
 ***
 
+### registerExportContact()
+
+```ts
+function registerExportContact(server, service): void;
+```
+
+Register the `export_contact` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerForgetCredential()
 
 ```ts
@@ -2993,6 +3203,27 @@ instructions. Static content; needs no [MeshService](#meshservice).
 
 ***
 
+### registerImportContact()
+
+```ts
+function registerImportContact(server, service): void;
+```
+
+Register the `import_contact` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerNode()
 
 ```ts
@@ -3064,6 +3295,48 @@ empty M0 smoke path stays empty.
 
 ***
 
+### registerRemoveContact()
+
+```ts
+function registerRemoveContact(server, service): void;
+```
+
+Register the `remove_contact` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerResetPath()
+
+```ts
+function registerResetPath(server, service): void;
+```
+
+Register the `reset_path` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerSendMessage()
 
 ```ts
@@ -3071,6 +3344,27 @@ function registerSendMessage(server, service): void;
 ```
 
 Register the `send_message` action tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetAutoAddContacts()
+
+```ts
+function registerSetAutoAddContacts(server, service): void;
+```
+
+Register the `set_auto_add_contacts` tool on `server`, backed by `service`.
 
 #### Parameters
 
@@ -3110,6 +3404,27 @@ never clobbers an existing channel).
 
 ***
 
+### registerSetContactPath()
+
+```ts
+function registerSetContactPath(server, service): void;
+```
+
+Register the `set_contact_path` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerSetCredential()
 
 ```ts
@@ -3117,6 +3432,27 @@ function registerSetCredential(server, service): void;
 ```
 
 Register the `set_credential` tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerShareContact()
+
+```ts
+function registerShareContact(server, service): void;
+```
+
+Register the `share_contact` tool on `server`, backed by `service`.
 
 #### Parameters
 
