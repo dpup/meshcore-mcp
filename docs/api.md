@@ -734,7 +734,7 @@ A `remote-only` command targeting the home node throws an
 
 | Parameter | Type |
 | ------ | ------ |
-| `node` | `string` |
+| `node` | `string` \| `undefined` |
 | `command` | `string` |
 | `params` | `unknown` |
 | `dryRun` | `boolean` |
@@ -1912,6 +1912,46 @@ The node the failing operation targeted (name or key prefix), if any.
 
 ***
 
+### HomeAdminToolOptions
+
+Options for [registerHomeAdminTool](#registerhomeadmintool).
+
+#### Properties
+
+##### commandName
+
+```ts
+commandName: string;
+```
+
+The matching key into [ADMIN\_COMMANDS](#admin_commands) (e.g. `"reboot"`).
+
+##### description
+
+```ts
+description: string;
+```
+
+The tool's agent-facing description. Should mention the admin equivalent.
+
+##### name
+
+```ts
+name: string;
+```
+
+The MCP tool name (e.g. `"reboot_node"`).
+
+##### title
+
+```ts
+title: string;
+```
+
+The tool's human title (shown in tool list UIs).
+
+***
+
 ### JsonFileCredentialStoreOptions
 
 Options for constructing a [JsonFileCredentialStore](#jsonfilecredentialstore).
@@ -3035,6 +3075,27 @@ Register the `admin` action tool on `server`, backed by `service`.
 
 ***
 
+### registerBroadcastAdvert()
+
+```ts
+function registerBroadcastAdvert(server, service): void;
+```
+
+Register `broadcast_advert`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerChannels()
 
 ```ts
@@ -3208,6 +3269,35 @@ instructions. Static content; needs no [MeshService](#meshservice).
 
 ***
 
+### registerHomeAdminTool()
+
+```ts
+function registerHomeAdminTool(
+   server, 
+   service, 
+   opts): void;
+```
+
+Register one unwrapped admin tool. Looks the command up in
+[ADMIN\_COMMANDS](#admin_commands), splices the command's Zod params into the tool's
+input schema alongside `node?` + `dryRun?`, derives per-command
+annotations from [annotationsForTier](#annotationsfortier), and dispatches via
+[MeshService.runAdmin](#runadmin).
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+| `opts` | [`HomeAdminToolOptions`](#homeadmintooloptions) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerImportContact()
 
 ```ts
@@ -3286,6 +3376,27 @@ Register the curated prompt templates on `server`.
 Prompts are pure content — they don't touch the [MeshService](#meshservice) — but
 [createServer](#createserver) registers them inside the service-present block so the
 empty M0 smoke path stays empty.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerRebootNode()
+
+```ts
+function registerRebootNode(server, service): void;
+```
+
+Register `reboot_node`.
 
 #### Parameters
 
@@ -3451,6 +3562,90 @@ Register the `set_credential` tool on `server`, backed by `service`.
 
 ***
 
+### registerSetNodeLocation()
+
+```ts
+function registerSetNodeLocation(server, service): void;
+```
+
+Register `set_node_location`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetNodeName()
+
+```ts
+function registerSetNodeName(server, service): void;
+```
+
+Register `set_node_name`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetRadio()
+
+```ts
+function registerSetRadio(server, service): void;
+```
+
+Register `set_radio`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSetTxPower()
+
+```ts
+function registerSetTxPower(server, service): void;
+```
+
+Register `set_tx_power`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
 ### registerShareContact()
 
 ```ts
@@ -3479,6 +3674,27 @@ function registerSurveyMesh(server, service): void;
 ```
 
 Register the `survey_mesh` read tool on `server`, backed by `service`.
+
+#### Parameters
+
+| Parameter | Type |
+| ------ | ------ |
+| `server` | [`McpServer`](https://github.com/modelcontextprotocol/typescript-sdk) |
+| `service` | [`MeshService`](#meshservice) |
+
+#### Returns
+
+`void`
+
+***
+
+### registerSyncClock()
+
+```ts
+function registerSyncClock(server, service): void;
+```
+
+Register `sync_clock`.
 
 #### Parameters
 
