@@ -1,7 +1,8 @@
 /**
  * The "unwrapped" admin tools — top-level MCP tools for selected
- * ADMIN_COMMANDS entries. Each tool delegates to the corresponding registry
- * entry via {@link MeshService.runAdmin}, so:
+ * ADMIN_COMMANDS entries (currently 13: 7 home+remote + 6 remote-only
+ * reads). Each tool delegates to the corresponding registry entry via
+ * {@link MeshService.runAdmin}, so:
  *
  * - **per-command MCP annotations work** — `set_tx_power` carries
  *   `idempotentHint: true, destructiveHint: false`, `reboot_node` carries
@@ -15,6 +16,8 @@
  *
  * Two scope flavours both wrap cleanly here:
  * - **home+remote** — `node` is optional (omit ⇒ home), e.g. `reboot_node`.
+ *   Requires the underlying `ADMIN_COMMANDS` entry to expose a `home()`
+ *   path; the registration guard enforces this at server startup.
  * - **remote-only** — `node` is required (no home path), e.g.
  *   `get_node_neighbors` (the CLI's `neighbors` verb only exists on
  *   repeater firmware, so against home it would return the same
@@ -38,6 +41,29 @@ import { ADMIN_COMMANDS, annotationsForTier } from "../service/admin.js";
 import type { MeshService } from "../service/mesh-service.js";
 import { registerServiceTool } from "./register.js";
 
+/**
+ * Compile-time exhaustiveness check. Used at the `default` branch of a
+ * switch over a string-literal union so a future addition to the union
+ * fails compilation here, forcing the new case to be handled rather than
+ * silently falling into the default branch.
+ */
+function assertNever(x: never): never {
+  throw new Error(`unhandled discriminant: ${JSON.stringify(x)}`);
+}
+
+/**
+ * The repeating cross-reference in remote-only tool descriptions
+ * ("For the home node, use `get_node_health()` (the `X` field)") —
+ * extracted so renaming a `get_node_health` field is a one-line change
+ * here, not 4+ description edits.
+ */
+function homeAlternative(healthField: string): string {
+  return (
+    `For the home node, use \`get_node_health()\` (the \`${healthField}\` field) — ` +
+    `that's the structured equivalent via the companion protocol, no admin call needed.`
+  );
+}
+
 /** One entry in the {@link UNWRAPPED_ADMIN_TOOLS} registry. */
 export interface UnwrappedAdminTool {
   /** The MCP tool name (e.g. `"reboot_node"`). */
@@ -51,15 +77,17 @@ export interface UnwrappedAdminTool {
 }
 
 /**
- * The 7 unwrapped admin tools. Single source of truth: {@link
+ * The unwrapped admin tools. Single source of truth: {@link
  * registerUnwrappedAdminTools} iterates this list to register, and
  * `instructions.ts` derives the tool-name surface mentioned in
  * `SERVER_INSTRUCTIONS` from the same list.
  *
- * Adding an 8th is one entry here — no new file, no separate registration
- * line, no instructions-list edit. The entry must reference an
- * `ADMIN_COMMANDS` key whose scope is `"home+remote"` (a structured `home`
- * path exists); the registration guard enforces this at server startup.
+ * Adding another is one entry here — no new file, no separate
+ * registration line, no instructions-list edit. The entry must reference
+ * a valid `ADMIN_COMMANDS` key; `home+remote` commands must additionally
+ * expose a `home()` path. The registration guard enforces both at
+ * server startup so a bad entry fails loud during dev, not as a runtime
+ * dispatch mismatch later.
  */
 export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
   {
@@ -146,8 +174,8 @@ export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
     description:
       "Read a remote repeater's firmware version + build date string. " +
       "Equivalent to `admin <node> ver`. Required `node` — only repeater " +
-      "firmware implements the `ver` CLI verb. For the home node's " +
-      "firmware identity, use `get_node_health()` (the `firmware` block).",
+      "firmware implements the `ver` CLI verb. " +
+      homeAlternative("firmware"),
   },
   {
     name: "get_node_board",
@@ -155,8 +183,8 @@ export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
     title: "Read a remote node's hardware board",
     description:
       "Read a remote repeater's hardware board / model identifier. " +
-      "Equivalent to `admin <node> board`. Required `node`. For the home " +
-      "node, use `get_node_health()` (the `firmware.manufacturerModel` field).",
+      "Equivalent to `admin <node> board`. Required `node`. " +
+      homeAlternative("firmware.manufacturerModel"),
   },
   {
     name: "get_node_clock",
@@ -164,8 +192,8 @@ export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
     title: "Read a remote node's current clock",
     description:
       "Read a remote repeater's current device clock (HH:MM - D/M/Y UTC). " +
-      "Equivalent to `admin <node> clock`. Required `node`. For the home " +
-      "node, use `get_node_health()` (the `deviceTimeMs` field).",
+      "Equivalent to `admin <node> clock`. Required `node`. " +
+      homeAlternative("deviceTimeMs"),
   },
   {
     name: "get_node_neighbors",
@@ -196,9 +224,10 @@ export const UNWRAPPED_ADMIN_TOOLS: readonly UnwrappedAdminTool[] = [
       "Read one of a remote repeater's configuration values by key (e.g. " +
       "`tx`, `radio`, `name`, `freq`, `flood.max`, `path.hash.mode`). " +
       "Equivalent to `admin <node> get-config { key }`. Required `node`. " +
-      "The reply is a single line of text the agent parses. For the " +
-      "home node's radio / identity config, use `get_node_health()` " +
-      "(structured fields).",
+      "The reply is a single line of text the agent parses. " +
+      "For the home node's radio / identity config, use `get_node_health()` " +
+      "(structured fields cover the common ones — `radio`, `firmware`, " +
+      "`location`, `autoAddContacts`).",
   },
 ];
 
@@ -232,6 +261,20 @@ function registerOne(
   if (def === undefined) {
     throw new Error(`registerUnwrappedAdminTools: unknown command "${spec.commandName}"`);
   }
+  // Restored from v0.1.5: a `home+remote` command without a `home()` path
+  // would register fine here but throw the role-mismatch error at
+  // runtime — surface that gap at startup instead. Today every
+  // `home+remote` entry in ADMIN_COMMANDS has a `home()` path; this
+  // catches a future addition that forgets to add one.
+  if (def.scope === "home+remote" && def.home === undefined) {
+    throw new Error(
+      `registerUnwrappedAdminTools: "${spec.commandName}" is scope=home+remote ` +
+        `but has no home() path; the unwrap would dispatch successfully ` +
+        `against a remote node but throw a role-mismatch at runtime when ` +
+        `targeted at home. Add a home() path to ADMIN_COMMANDS["${spec.commandName}"] ` +
+        `or remove the entry from UNWRAPPED_ADMIN_TOOLS.`,
+    );
+  }
   if (!(def.params instanceof z.ZodObject)) {
     throw new Error(
       `registerUnwrappedAdminTools: "${spec.commandName}" params must be a ` +
@@ -252,15 +295,29 @@ function registerOne(
   // home+remote → `node` optional (omit ⇒ home). remote-only → required
   // (no home path; the SDK should reject before the handler runs rather
   // than letting runAdmin's role-mismatch error surface).
-  const nodeBase = z
-    .string()
-    .min(1)
-    .describe(
-      def.scope === "home+remote"
-        ? "target node (contact name or hex public-key prefix); omit to target the home node"
-        : "target node (contact name or hex public-key prefix); required (this command isn't implemented on companion firmware so it can't target home)",
-    );
-  const nodeSchema = def.scope === "home+remote" ? nodeBase.optional() : nodeBase;
+  //
+  // Switch (not ternary) so adding a third scope value to AdminScope is a
+  // compile-time error here — the `never` exhaustiveness check forces a
+  // conscious decision about whether `node` is optional or required for
+  // the new scope.
+  const nodeSchema = (() => {
+    const base = z.string().min(1);
+    switch (def.scope) {
+      case "home+remote":
+        return base
+          .describe(
+            "target node (contact name or hex public-key prefix); omit to target the home node",
+          )
+          .optional();
+      case "remote-only":
+        return base.describe(
+          "target node (contact name or hex public-key prefix); required (this command isn't implemented on companion firmware so it can't target home)",
+        );
+      default:
+        // Compile-time exhaustiveness check: a new AdminScope value lands here.
+        return assertNever(def.scope);
+    }
+  })();
 
   registerServiceTool(server, service, {
     name: spec.name,

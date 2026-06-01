@@ -213,15 +213,32 @@ function parseTracePath(path: string): Uint8Array {
 }
 
 /**
+ * The closed set of labels {@link homeHealth}'s `degraded` array can carry.
+ * Typed as a literal-union so a typo at a `settled()` call site fails at
+ * compile time rather than silently emitting garbage to clients.
+ */
+const DEGRADED_LABELS = [
+  "battery",
+  "deviceTime",
+  "statsCore",
+  "statsRadio",
+  "statsPackets",
+  "firmware",
+] as const;
+type DegradedLabel = (typeof DEGRADED_LABELS)[number];
+
+/**
  * Read a `Promise.allSettled` result for a degradable sub-call: return its value
  * on fulfilment, or push `label` onto `degraded` and return `undefined` on
  * rejection. Replaces the comma-operator idiom (`(degraded.push(x), undefined)`)
  * that smuggled the side effect into an assignment — same result, readable.
+ * `label` is constrained to {@link DEGRADED_LABELS} so typos fail at the
+ * compiler, not as opaque strings in client output.
  */
 function settled<T>(
   r: PromiseSettledResult<T>,
-  label: string,
-  degraded: string[],
+  label: DegradedLabel,
+  degraded: DegradedLabel[],
 ): T | undefined {
   if (r.status === "fulfilled") return r.value;
   degraded.push(label);
@@ -1213,7 +1230,7 @@ export class MeshService {
       this.request(() => this.client.deviceQuery()),
     ]);
 
-    const degraded: string[] = [];
+    const degraded: DegradedLabel[] = [];
     const battery = settled(batteryR, "battery", degraded);
     const deviceTime = settled(deviceTimeR, "deviceTime", degraded);
     const core = settled(coreR, "statsCore", degraded);
@@ -1275,21 +1292,45 @@ export class MeshService {
     if (txQueueLen !== undefined) result.txQueueLen = txQueueLen;
     if (Object.keys(stats).length > 0) result.stats = stats;
     if (firmware !== undefined) {
-      result.firmware = {
-        protocolVersion: firmware.firmwareVer,
-        buildDate: firmware.firmwareBuildDate,
-        manufacturerModel: firmware.manufacturerModel,
-      };
+      // Per meshcore-ts's typed `deviceQuery()` return shape all three
+      // fields are required, so this assignment is currently safe. Guard
+      // each anyway: if upstream ever loosens the type or a malformed
+      // device response surfaces a partial reply, an undefined sub-field
+      // would violate our output schema's required inner fields.
+      // Demote to `degraded` instead of emitting a half-populated block.
+      const { firmwareVer, firmwareBuildDate, manufacturerModel } = firmware;
+      if (
+        typeof firmwareVer === "number" &&
+        typeof firmwareBuildDate === "string" &&
+        typeof manufacturerModel === "string"
+      ) {
+        result.firmware = {
+          protocolVersion: firmwareVer,
+          buildDate: firmwareBuildDate,
+          manufacturerModel,
+        };
+      } else {
+        degraded.push("firmware");
+      }
     }
     // Location: only present when the operator has actually set one. The
     // firmware reports (0, 0) for an unset advert location; skip that to
-    // avoid surfacing a misleading null-island fix.
-    if (self.advLat !== 0 || self.advLon !== 0) {
+    // avoid surfacing a misleading null-island fix. `Number.isFinite`
+    // rejects NaN/±Infinity that a malformed wire response could surface.
+    if (
+      Number.isFinite(self.advLat) &&
+      Number.isFinite(self.advLon) &&
+      (self.advLat !== 0 || self.advLon !== 0)
+    ) {
       result.location = { lat: self.advLat, lon: self.advLon };
     }
-    // The companion's advert auto-add flag is the inverse of the wire-level
-    // `manualAddContacts` (the bit the device actually stores).
-    result.autoAddContacts = !self.manualAddContacts;
+    // The companion's auto-add flag is the inverse of the wire-level
+    // `manualAddContacts` (the bit the device actually stores). Typed as
+    // `boolean` upstream; guard defensively against future drift so an
+    // `undefined` doesn't invert into a misleading `true`.
+    if (typeof self.manualAddContacts === "boolean") {
+      result.autoAddContacts = !self.manualAddContacts;
+    }
     if (degraded.length > 0) result.degraded = degraded;
     return result;
   }

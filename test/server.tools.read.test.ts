@@ -83,11 +83,13 @@ describe("read tools through a real MCP Client over a sim-backed server", () => 
     // 0.1.6: home snapshot also carries the structured ver/board info from
     // `deviceQuery` (replacing the need for an `admin ver` / `admin board`
     // call to read the home node's identity) and the auto-add-contacts
-    // state from getSelfInfo.
+    // state from getSelfInfo. Assert content shape, not just types — an
+    // empty string for buildDate or manufacturerModel would pass a bare
+    // `typeof` check but be useless to the agent.
     expect(health.firmware).toBeDefined();
-    expect(typeof health.firmware?.buildDate).toBe("string");
-    expect(typeof health.firmware?.manufacturerModel).toBe("string");
-    expect(typeof health.firmware?.protocolVersion).toBe("number");
+    expect(health.firmware?.protocolVersion).toBe(1);
+    expect(health.firmware?.buildDate.length).toBeGreaterThan(0);
+    expect(health.firmware?.manufacturerModel.length).toBeGreaterThan(0);
     expect(typeof health.autoAddContacts).toBe("boolean");
     // The digest is a high-signal summary, not raw frames.
     expect(text(res)).toContain("Base");
