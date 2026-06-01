@@ -28,8 +28,11 @@ export function registerSetContactPath(server: McpServer, service: MeshService):
         target: z.string().describe("contact name or hex public-key prefix"),
         pathHex: z
           .string()
-          .regex(/^[0-9a-fA-F]*$/u, "must be hex bytes (or empty for direct)")
-          .describe("repeater path-hash bytes as hex; empty string ⇒ direct (no hops)"),
+          // 64 bytes max ⇒ 128 hex chars. Pairs only — an odd-length hex
+          // string would crash `fromHex` at dispatch time; reject upfront.
+          .max(128)
+          .regex(/^([0-9a-fA-F]{2})*$/u, "must be an even-length hex byte string (or empty for direct)")
+          .describe("repeater path-hash bytes as hex (max 64 bytes / 128 chars); empty string ⇒ direct (no hops)"),
       },
       outputSchema: setContactPathOutputShape,
       annotations: {

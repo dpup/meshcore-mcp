@@ -401,11 +401,20 @@ export function digestExportContact(r: { name: string; advertHex: string }): str
   return `Exported "${r.name}" — ${r.advertHex.length / 2} bytes.`;
 }
 
-/** Output schema for `share_contact`. */
-export const shareContactOutputShape = {
+/**
+ * Shared output schema for contact-operation tools that return just an
+ * identity reference (`share_contact`, `remove_contact`, `reset_path`). Each
+ * tool re-exports it under a tool-specific name so the surface stays
+ * self-documenting at the registration site, but there's only one shape to
+ * maintain.
+ */
+const contactIdentityShape = {
   name: z.string(),
   publicKey: z.string(),
 } as const;
+
+/** Output schema for `share_contact`. */
+export const shareContactOutputShape = contactIdentityShape;
 
 /** A one-line digest of a `share_contact` result. */
 export function digestShareContact(r: { name: string }): string {
@@ -413,10 +422,7 @@ export function digestShareContact(r: { name: string }): string {
 }
 
 /** Output schema for `remove_contact`. */
-export const removeContactOutputShape = {
-  name: z.string(),
-  publicKey: z.string(),
-} as const;
+export const removeContactOutputShape = contactIdentityShape;
 
 /** A one-line digest of a `remove_contact` result. */
 export function digestRemoveContact(r: { name: string }): string {
@@ -424,10 +430,7 @@ export function digestRemoveContact(r: { name: string }): string {
 }
 
 /** Output schema for `reset_path`. */
-export const resetPathOutputShape = {
-  name: z.string(),
-  publicKey: z.string(),
-} as const;
+export const resetPathOutputShape = contactIdentityShape;
 
 /** A one-line digest of a `reset_path` result. */
 export function digestResetPath(r: { name: string }): string {

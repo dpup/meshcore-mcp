@@ -471,8 +471,7 @@ export class MeshService {
       const bytes = await this.request(() => this.client.exportContact());
       return { name: self.name, publicKey: self.publicKey, advertHex: toHex(bytes) };
     }
-    const contact = await this.resolver.resolveContact(target);
-    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    const contact = await this.requireContact(target);
     const bytes = await this.request(() => this.client.exportContact(contact));
     return {
       name: contact.advName || target,
@@ -485,11 +484,15 @@ export class MeshService {
    * Broadcast a contact's advert mesh-wide. Used to propagate a contact's
    * identity (its public key, name, last-known location) so other nodes can
    * route to it without having heard its own advert.
+   *
+   * **Not retry-wrapped:** every call transmits a fresh advert on the air,
+   * so a retry after a transient device error would double-send. Same family
+   * as `sendTextMessage` / `sendFloodAdvert` (AGENTS.md don't-regress: do not
+   * wrap non-idempotent transmissions in the request-retry path).
    */
   async shareContact(target: string): Promise<{ name: string; publicKey: string }> {
-    const contact = await this.resolver.resolveContact(target);
-    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
-    await this.request(() => this.client.shareContact(contact));
+    const contact = await this.requireContact(target);
+    await this.client.shareContact(contact);
     return { name: contact.advName || target, publicKey: contact.publicKey };
   }
 
@@ -499,8 +502,7 @@ export class MeshService {
    * destructive in the mesh sense — only in the local roster.
    */
   async removeContact(target: string): Promise<{ name: string; publicKey: string }> {
-    const contact = await this.resolver.resolveContact(target);
-    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    const contact = await this.requireContact(target);
     await this.request(() => this.client.removeContact(contact));
     return { name: contact.advName || target, publicKey: contact.publicKey };
   }
@@ -511,8 +513,7 @@ export class MeshService {
    * repeater rebooted, a topology change) and direct sends are failing.
    */
   async resetContactPath(target: string): Promise<{ name: string; publicKey: string }> {
-    const contact = await this.resolver.resolveContact(target);
-    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    const contact = await this.requireContact(target);
     await this.request(() => this.client.resetPath(contact));
     return { name: contact.advName || target, publicKey: contact.publicKey };
   }
@@ -527,9 +528,9 @@ export class MeshService {
     target: string,
     pathHex: string,
   ): Promise<{ name: string; publicKey: string; pathHex: string }> {
-    const contact = await this.resolver.resolveContact(target);
-    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
-    const bytes = pathHex === "" ? new Uint8Array() : fromHex(pathHex);
+    const contact = await this.requireContact(target);
+    // `fromHex("")` already returns an empty Uint8Array — no special-case.
+    const bytes = fromHex(pathHex);
     if (bytes.length > 64) {
       throw new MeshCoreError(`path too long (${bytes.length} bytes; max 64)`);
     }
@@ -539,6 +540,17 @@ export class MeshService {
       publicKey: contact.publicKey,
       pathHex: toHex(bytes),
     };
+  }
+
+  /**
+   * Resolve `target` to a known contact or throw
+   * {@link MeshServiceUnknownNodeError}. Shared by the contact-management
+   * methods so the lookup-or-friendly-error pattern lives in one place.
+   */
+  private async requireContact(target: string): Promise<Contact> {
+    const contact = await this.resolver.resolveContact(target);
+    if (contact === undefined) throw new MeshServiceUnknownNodeError(target);
+    return contact;
   }
 
   /**

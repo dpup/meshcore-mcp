@@ -27,7 +27,9 @@ export function registerImportContact(server: McpServer, service: MeshService): 
       inputSchema: {
         advertHex: z
           .string()
-          .regex(/^[0-9a-fA-F]+$/u, "must be hex bytes")
+          // Pairs only — an odd-length hex string would crash `fromHex` at
+          // dispatch time; reject at the schema layer instead.
+          .regex(/^([0-9a-fA-F]{2})+$/u, "must be an even-length hex byte string")
           .describe("the advert packet as hex bytes (e.g. the output of export_contact)"),
       },
       outputSchema: importContactOutputShape,

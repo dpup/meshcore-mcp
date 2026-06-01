@@ -215,16 +215,45 @@ describe("contact-management tools through the MCP stack", () => {
     await h.cleanup();
   });
 
-  it("set_contact_path rejects paths longer than 64 bytes", async () => {
+  it("set_contact_path rejects paths longer than 64 bytes at the schema layer", async () => {
     const h = await makeSimServer({ world: buildWorld() });
-    // 65 bytes = 130 hex chars
-    const res = (await h.client.callTool({
-      name: "set_contact_path",
-      arguments: { target: "Rocky", pathHex: "ab".repeat(65) },
-    })) as ToolResult;
-    expect(res.isError).toBe(true);
-    expect(text(res).toLowerCase()).toContain("too long");
+    // 65 bytes = 130 hex chars. The Zod schema caps at 128 hex chars (64
+    // bytes), so the MCP SDK rejects before the handler runs — no
+    // addOrUpdateContact call should reach the sim.
+    await h.client
+      .callTool({
+        name: "set_contact_path",
+        arguments: { target: "Rocky", pathHex: "ab".repeat(65) },
+      })
+      .catch(() => undefined);
     expect(h.sim.commandsOf("addOrUpdateContact").length).toBe(0);
+    await h.cleanup();
+  });
+
+  it("set_contact_path rejects odd-length hex at the schema layer", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    // "abc" is 3 chars — 1.5 bytes. Without the schema enforcing pairs,
+    // fromHex would crash inside MeshService with a runtime error; with the
+    // schema, the SDK rejects before the handler runs.
+    await h.client
+      .callTool({
+        name: "set_contact_path",
+        arguments: { target: "Rocky", pathHex: "abc" },
+      })
+      .catch(() => undefined);
+    expect(h.sim.commandsOf("addOrUpdateContact").length).toBe(0);
+    await h.cleanup();
+  });
+
+  it("import_contact rejects odd-length hex at the schema layer", async () => {
+    const h = await makeSimServer({ world: buildWorld() });
+    await h.client
+      .callTool({
+        name: "import_contact",
+        arguments: { advertHex: "abc" },
+      })
+      .catch(() => undefined);
+    expect(h.sim.commandsOf("importContact").length).toBe(0);
     await h.cleanup();
   });
 
