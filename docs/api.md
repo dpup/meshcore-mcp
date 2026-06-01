@@ -912,6 +912,11 @@ Broadcast a contact's advert mesh-wide. Used to propagate a contact's
 identity (its public key, name, last-known location) so other nodes can
 route to it without having heard its own advert.
 
+**Not retry-wrapped:** every call transmits a fresh advert on the air,
+so a retry after a transient device error would double-send. Same family
+as `sendTextMessage` / `sendFloodAdvert` (AGENTS.md don't-regress: do not
+wrap non-idempotent transmissions in the request-retry path).
+
 ###### Parameters
 
 | Parameter | Type |
